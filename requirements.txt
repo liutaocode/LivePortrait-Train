@@ -1,0 +1,6 @@
+-r requirements_base.txt
+
+onnxruntime-gpu==1.18.0
+transformers==4.38.0
+lightning==2.5.0
+wandb==0.19.1
