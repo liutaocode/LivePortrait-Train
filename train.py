@@ -1,4 +1,4 @@
-import os, torch, torch.nn as nn, torch.utils.data as data, torchvision as tv
+import os, torch
 import lightning as L
 import yaml
 from src.config.argument_config import ArgumentConfig
@@ -12,7 +12,6 @@ from src.modules.appearance_feature_extractor import AppearanceFeatureExtractor
 from src.utils.camera import get_rotation_matrix, headpose_pred_to_degree
 from src.losses import KeypointPriorLoss, EquivarianceLoss, FeatureMatchingLoss, HeadPoseLoss, DeformationPriorLoss
 from src.datasets import CustomDataset
-import wandb
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
@@ -143,7 +142,6 @@ class LitAutoEncoder(L.LightningModule):
 
         optimizer_g, optimizer_d = self.optimizers()
         optimizer_g.zero_grad()
-        optimizer_d.zero_grad()
 
         source_img = batch['source_img']
         target_img = batch['target_img']
@@ -244,6 +242,10 @@ class LitAutoEncoder(L.LightningModule):
         )
         return opt_g, opt_d
 
+    def validation_step(self, batch, batch_idx):
+        with torch.no_grad():
+            # TODO not implemented
+            pass
 
 
 if __name__ == "__main__":

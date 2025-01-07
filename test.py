@@ -28,14 +28,14 @@ def process_kp(kp_info):
 
     return kp, scale, R, exp, t
 
-def inference(args, checkpoint_path, source_img_path, target_img_path, pretrained_from_liveportrait=False):
+def inference(args, previsous_exp_checkpoint_path, source_img_path, target_img_path, pretrained_from_liveportrait=False):
 
     # Initialize Lightning model
-    model = LitAutoEncoder(args=args, pretrained_from_liveportrait=pretrained_from_liveportrait)
+    model = LitAutoEncoder(args=args, pretrained_from_liveportrait=pretrained_from_liveportrait, previsous_exp_checkpoint_path=previsous_exp_checkpoint_path)
 
     if not pretrained_from_liveportrait:
-        # Load checkpoint
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+        # Load checkpoint for your checkpoint
+        checkpoint = torch.load(previsous_exp_checkpoint_path, map_location=torch.device('cpu'))
         model.load_state_dict(checkpoint['state_dict'])
 
     appearance_feature_extractor = model.appearance_feature_extractor
@@ -87,8 +87,6 @@ def inference(args, checkpoint_path, source_img_path, target_img_path, pretraine
     return output_image
 
 
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
@@ -107,6 +105,15 @@ if __name__ == "__main__":
 
     os.makedirs(args.saved_to, exist_ok=True)
 
+    if not os.path.exists(args.source_img_path):
+        raise FileNotFoundError(f"Source image not found: {args.source_img_path}")
+    
+    if not os.path.exists(args.target_img_path):
+        raise FileNotFoundError(f"Target image not found: {args.target_img_path}")
+    
+    if not args.checkpoint_path:
+        raise FileNotFoundError(f"Checkpoint file not found: {args.checkpoint_path}")
+
     official_output_image = inference(args, '', args.source_img_path, args.target_img_path, pretrained_from_liveportrait=True)
     pred_output_image = inference(args, args.checkpoint_path, args.source_img_path, args.target_img_path, pretrained_from_liveportrait=False)
 
@@ -123,4 +130,4 @@ if __name__ == "__main__":
     concat_img = np.concatenate([source_img_512, target_img_512, official_output_image, pred_output_image], axis=1)
 
     # Save concatenated result
-    cv2.imwrite(os.path.join(args.saved_to, f'{i}.jpg'), concat_img[..., ::-1])  # Convert RGB to BGR for cv2
+    cv2.imwrite(os.path.join(args.saved_to, 'result.jpg'), concat_img[..., ::-1])  # Convert RGB to BGR for cv2
