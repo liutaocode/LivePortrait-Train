@@ -8,12 +8,14 @@ TODO:
 - Stage 2 & 3 implementation
 
 Completed:
+- Stage 1 Training
 - PyTorch Lightning integration
 - Basic GAN implementation 
 - Basic Perception Loss implementation (VGG)
 
+
 Scripts:
-- Train.py: Training script
+- Train.py: Training script for stage 1
 - Test.py: Inference script that outputs images in the following order:
   1. Source image
   2. Driving image
