@@ -3,14 +3,14 @@
 Currently this is a basic version, not fully implemented, may contain bugs, please use with caution
 
 TODO:
-[] Wing loss
-[] Cascade loss
-[] Stage 2 & 3 implementation
+- Wing loss
+- Cascade loss
+- Stage 2 & 3 implementation
 
 Completed:
-[] PyTorch Lightning integration
-[] Basic GAN implementation (VGG)
-[] Basic Perception Loss implementation
+- PyTorch Lightning integration
+- Basic GAN implementation (VGG)
+- Basic Perception Loss implementation
 
 Scripts:
 - Train.py: Training script
