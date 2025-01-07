@@ -9,8 +9,8 @@ TODO:
 
 Completed:
 - PyTorch Lightning integration
-- Basic GAN implementation (VGG)
-- Basic Perception Loss implementation
+- Basic GAN implementation 
+- Basic Perception Loss implementation (VGG)
 
 Scripts:
 - Train.py: Training script
