@@ -147,7 +147,7 @@ class LitAutoEncoder(L.LightningModule):
         target_img = batch['target_img']
         target_img_512 = batch['target_img_512']
         target_ypr = batch['target_ypr']
-        target_lmd = batch['target_lmd']
+        target_lmd = batch['target_lmd'] # TODO for wing loss
 
 
         f_s = self.appearance_feature_extractor(source_img)

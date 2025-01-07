@@ -70,7 +70,7 @@ class CustomDataset(torch.utils.data.Dataset):
                     ypr_len = yaw_pitch_roll.shape[0]
 
                     min_len = min(frame_len, landmark_len, ypr_len)
-                    lmd_obj = self.read_landmark_info(clip_landmarks_dir, upper_face=False)
+                    lmd_obj = self.read_landmark_info(clip_landmarks_dir)
 
                     current_db_meta_lists.append({
                         'db_name': db_name,
@@ -88,7 +88,7 @@ class CustomDataset(torch.utils.data.Dataset):
         print(f'Total count: {len(self.meta_lists)}')
 
 
-    def read_landmark_info(self, lmd_path, upper_face=True):
+    def read_landmark_info(self, lmd_path):
         with open(lmd_path, 'r') as file:
             lmd_lines = file.readlines()
         lmd_lines.sort()
@@ -99,15 +99,10 @@ class CustomDataset(torch.utils.data.Dataset):
             coords = [c for c in line.strip().split(' ') if c]
             coords = coords[1:] # do not include the file name in the first row
             lmd_obj = []
-            if upper_face:
-                # Ensure that the coordinates are parsed as integers
-                for coord_pair in self.get_multiple_ranges(coords, [(0, 3), (14, 27), (36, 48)]): # 28个
-                    x, y = coord_pair.split('_')
-                    lmd_obj.append((int(x)/512, int(y)/512))
-            else:
-                for coord_pair in coords:
-                    x, y = coord_pair.split('_')
-                    lmd_obj.append((int(x)/512, int(y)/512))
+
+            for coord_pair in coords:
+                x, y = coord_pair.split('_')
+                lmd_obj.append((int(x)/512, int(y)/512))
             total_lmd_obj.append(lmd_obj)
 
         return np.array(total_lmd_obj, dtype=np.float32)
