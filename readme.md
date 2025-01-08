@@ -22,6 +22,10 @@ Scripts:
   3. Output from official LivePortrait model
   4. Output from your trained model
 
+
+Due to certain constraints, I currently have no plan to release pre-trained models.
+
+
 References:
 - https://github.com/KwaiVGI/LivePortrait
 - https://github.com/zhengkw18/face-vid2vid

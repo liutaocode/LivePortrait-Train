@@ -1,4 +1,4 @@
-import os, torch
+import os, torch, torch.nn as nn, torch.utils.data as data, torchvision as tv
 import lightning as L
 import yaml
 from src.config.argument_config import ArgumentConfig
@@ -19,20 +19,16 @@ from src.vgg19 import VGGLoss
 from src.discriminator import Discriminator
 import torch.nn.functional as F
 import argparse
+import time
+from pytorch_lightning import seed_everything
 
 class LitAutoEncoder(L.LightningModule):
-    def __init__(self, args, pretrained_from_liveportrait=False, previsous_exp_checkpoint_path=None):
+    def __init__(self, args):
         super().__init__()
-        self.wandb_project = "live-portrait-train"
-        self.clip_grad_norm = 1.0
         self.args = args
-        self.automatic_optimization = False
+        self.automatic_optimization = False # for GAN training
 
         models_config = 'src/config/models.yaml'
-        checkpoint_F_path = 'pretrained_weights/liveportrait/base_models/appearance_feature_extractor.pth'  # path to checkpoint of F
-        checkpoint_M_path = 'pretrained_weights/liveportrait/base_models/motion_extractor.pth'  # path to checkpoint pf M
-        checkpoint_G_path = 'pretrained_weights/liveportrait/base_models/spade_generator.pth'  # path to checkpoint of G
-        checkpoint_W_path = 'pretrained_weights/liveportrait/base_models/warping_module.pth'  # path to checkpoint of W
 
         model_config = yaml.load(open(models_config, 'r'), Loader=yaml.SafeLoader)
 
@@ -43,30 +39,10 @@ class LitAutoEncoder(L.LightningModule):
 
         self.dis_gan = Discriminator()
 
-        # load pretrained models
-        if os.path.exists(checkpoint_F_path) and pretrained_from_liveportrait:
-            self.appearance_feature_extractor.load_state_dict(torch.load(checkpoint_F_path))
-        else:
-            print(f"Checkpoint {checkpoint_F_path} does not exist.")
-
-        if os.path.exists(checkpoint_M_path) and pretrained_from_liveportrait:
-            self.motion_extractor.load_state_dict(torch.load(checkpoint_M_path))
-        else:
-            print(f"Checkpoint {checkpoint_M_path} does not exist.")
-
-        if os.path.exists(checkpoint_W_path) and pretrained_from_liveportrait:
-            self.warping_module.load_state_dict(torch.load(checkpoint_W_path))
-        else:
-            print(f"Checkpoint {checkpoint_W_path} does not exist.")
-
-        if os.path.exists(checkpoint_G_path) and pretrained_from_liveportrait:
-            self.spade_generator.load_state_dict(torch.load(checkpoint_G_path))
-        else:
-            print(f"Checkpoint {checkpoint_G_path} does not exist.")
-
+        self._load_pretrained_weights()
         # losses
         self.keypoint_prior_loss = KeypointPriorLoss()
-        # self.feature_matching_loss = FeatureMatchingLoss()
+
         self.deformation_prior_loss = DeformationPriorLoss()
 
         self.equivariance_loss = EquivarianceLoss(
@@ -79,12 +55,56 @@ class LitAutoEncoder(L.LightningModule):
 
         self.vgg_loss = VGGLoss()
 
-        if previsous_exp_checkpoint_path and os.path.exists(previsous_exp_checkpoint_path):
-            self.load_partial_model(previsous_exp_checkpoint_path)
-
         print(model_config)
 
-    def load_partial_model(self, pretrained_model_path):
+    def _load_pretrained_weights(self):
+        """Handle different pretrained model loading modes"""
+
+        # you can download the pretrained weights from the official LivePortrait repo
+        checkpoint_paths = {
+            'F': 'pretrained_weights/liveportrait/base_models/appearance_feature_extractor.pth',
+            'M': 'pretrained_weights/liveportrait/base_models/motion_extractor.pth',
+            'G': 'pretrained_weights/liveportrait/base_models/spade_generator.pth',
+            'W': 'pretrained_weights/liveportrait/base_models/warping_module.pth'
+        }
+
+        mode_handlers = {
+            0: self._train_from_scratch,
+            1: lambda: None,  # Resume training handled by Lightning trainer
+            2: lambda: self._load_partial_model(self.args.checkpoint_path),
+            3: lambda: self._load_official_weights(checkpoint_paths)
+        }
+
+        if self.args.pretrained_mode not in mode_handlers:
+            raise ValueError(f"Invalid pretrained_mode: {self.args.pretrained_mode}")
+
+        mode_handlers[self.args.pretrained_mode]()
+
+    def _train_from_scratch(self):
+        pass
+
+    def _load_official_weights(self, checkpoint_paths):
+        if os.path.exists(checkpoint_paths['F']):
+            self.appearance_feature_extractor.load_state_dict(torch.load(checkpoint_paths['F']))
+        else:
+            print(f"Checkpoint {checkpoint_paths['F']} does not exist.")
+
+        if os.path.exists(checkpoint_paths['M']):
+            self.motion_extractor.load_state_dict(torch.load(checkpoint_paths['M']))
+        else:
+            print(f"Checkpoint {checkpoint_paths['M']} does not exist.")
+
+        if os.path.exists(checkpoint_paths['W']):
+            self.warping_module.load_state_dict(torch.load(checkpoint_paths['W']))
+        else:
+            print(f"Checkpoint {checkpoint_paths['W']} does not exist.")
+
+        if os.path.exists(checkpoint_paths['G']):
+            self.spade_generator.load_state_dict(torch.load(checkpoint_paths['G']))
+        else:
+            print(f"Checkpoint {checkpoint_paths['G']} does not exist.")
+
+    def _load_partial_model(self, pretrained_model_path):
         selfState = self.state_dict()
 
         print(f'Loading pretrained model from {pretrained_model_path}')
@@ -149,7 +169,6 @@ class LitAutoEncoder(L.LightningModule):
         target_ypr = batch['target_ypr']
         target_lmd = batch['target_lmd'] # TODO for wing loss
 
-
         f_s = self.appearance_feature_extractor(source_img)
         x_s_info = self.motion_extractor(source_img)
 
@@ -163,7 +182,9 @@ class LitAutoEncoder(L.LightningModule):
 
         x_d_full = x_t_scale * (x_t_kp @ x_t_R + x_t_exp) + x_t_t
 
+
         ret_dct = self.warping_module(f_s, kp_source=x_s_full, kp_driving=x_d_full)
+
 
         output_result = self.spade_generator(feature=ret_dct['out'])
 
@@ -181,9 +202,9 @@ class LitAutoEncoder(L.LightningModule):
         img_recon_pred = self.dis_gan(output_result * 2 - 1)
         gan_g_loss = self.g_nonsaturating_loss(img_recon_pred)
 
-        # Add gradient clipping
-        if self.clip_grad_norm > 0:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), self.clip_grad_norm)
+        # Add gradient clipping for stable training
+        if self.args.clip_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.args.clip_grad_norm)
 
         # Add loss scaling to prevent any single loss from dominating
         loss_total = (
@@ -204,20 +225,21 @@ class LitAutoEncoder(L.LightningModule):
         self.log("deformation_loss", l_deformation, on_step=True)
         self.log("headpose_loss", l_headpose, on_step=True)
         self.log("vgg_loss", l_vgg, on_step=True)
-        self.log("gan_g_loss", gan_g_loss, on_step=True)
+        self.log("gan_generator_loss", gan_g_loss, on_step=True)
 
         self.manual_backward(loss_total)
         optimizer_g.step()
+
         optimizer_d.zero_grad()
 
         real_img_pred = self.dis_gan(target_img_512 * 2 - 1)
         recon_img_pred = self.dis_gan(output_result.detach() * 2 - 1)
         gan_d_loss = self.args.gan_loss_weight * self.d_nonsaturating_loss(recon_img_pred, real_img_pred)
-
         self.manual_backward(gan_d_loss)
-        self.log("gan_d_loss", gan_d_loss, on_step=True)
+        self.log("gan_discriminator_loss", gan_d_loss, on_step=True)
 
         optimizer_d.step()
+
 
         return loss_total
 
@@ -242,21 +264,16 @@ class LitAutoEncoder(L.LightningModule):
         )
         return opt_g, opt_d
 
-    def validation_step(self, batch, batch_idx):
-        with torch.no_grad():
-            # TODO not implemented
-            pass
-
 
 if __name__ == "__main__":
-    # training params
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_batch_size", type=int, default=4)
     parser.add_argument("--gan_g_loss_weight", type=float, default=0.01)
     parser.add_argument("--lr_g", type=float, default=1e-4)
     parser.add_argument("--lr_d", type=float, default=4e-4)
-    parser.add_argument("--exp_name", type=str, default="init_train")
+    parser.add_argument("--exp_name", type=str, default="exp_name")
+    parser.add_argument("--exp_dir", type=str, default="./exps/exps1/")
     parser.add_argument("--cache_dir", type=str, default="./assets/db_cache/")
     parser.add_argument("--vgg_loss_weight", type=float, default=0.1)
     parser.add_argument("--gan_loss_weight", type=float, default=1)
@@ -264,38 +281,47 @@ if __name__ == "__main__":
     parser.add_argument("--deformation_loss_weight", type=float, default=1)
     parser.add_argument("--headpose_loss_weight", type=float, default=1)
     parser.add_argument("--equivariance_loss_weight", type=float, default=1)
-    parser.add_argument("--every_n_epochs", type=int, default=1)
-    parser.add_argument("--recon_loss_weight", type=float, default=0) # 0 means no recon loss
-    parser.add_argument("--resume_from_checkpoint", type=str, default="")
-    parser.add_argument("--pretrained_from_liveportrait", type=bool, default=False)
+    parser.add_argument("--every_n_epochs", type=int, default=1, help="save checkpoint every n epochs")
+    parser.add_argument("--recon_loss_weight", type=float, default=0, help="weight for reconstruction loss. 0 means no reconstruction loss.")
+    parser.add_argument("--pretrained_mode", type=int, default=0, help="0: train from scratch, 1: resume training from lightning checkpoint, 2: partial training from lightning checkpoint, 3: train from official LivePortrait model")
+    parser.add_argument("--checkpoint_path", type=str, default="")
+    parser.add_argument("--max_epochs", type=int, default=1000)
     parser.add_argument("--debug_mode", type=bool, default=False)
-
+    parser.add_argument("--wandb_mode", type=bool, default=False)
+    parser.add_argument("--clip_grad_norm", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=420)
 
     args = parser.parse_args()
 
+    seed_everything(args.seed)
 
-    saved_to_dir = f"checkpoints/{args.exp_name}"
-    os.makedirs(saved_to_dir, exist_ok=True)
+    exp_prefix_name = f"mode_{args.pretrained_mode}_time_{time.strftime('%Y%m%d%H%M%S')}"
+    checkpoints_dir = f"{args.exp_dir}/{args.exp_name}/{exp_prefix_name}/checkpoints/"
+    logs_dir = f"{args.exp_dir}/{args.exp_name}/{exp_prefix_name}/logs/"
+    os.makedirs(checkpoints_dir, exist_ok=True)
 
     # Save training parameters to file
-    train_params_path = os.path.join(saved_to_dir, "train_params.txt")
-    with open(train_params_path, "w") as f:
+    with open(os.path.join(checkpoints_dir, "train_params.txt"), "w") as f:
         for arg, value in vars(args).items():
             f.write(f"{arg}: {value}\n")
 
-    if not args.debug_mode:
-        wandb_logger = WandbLogger(project="live-portrait", log_model="None", name=args.exp_name)
-    else:
-        wandb_logger  = TensorBoardLogger(
-            save_dir=saved_to_dir,
+    if not args.wandb_mode or args.debug_mode:
+        logger = TensorBoardLogger(
+            save_dir=logs_dir,
             name=args.exp_name,
             version=0
         )
+    else:
+        # log to wandb before training
+        logger = WandbLogger(project="live-portrait-train",
+                                   log_model="None",
+                                   name=args.exp_name+ "_" + exp_prefix_name)
 
 
-    model = LitAutoEncoder(args=args, pretrained_from_liveportrait = args.pretrained_from_liveportrait, previsous_exp_checkpoint_path = args.resume_from_checkpoint)
+    # Initialize model
+    model = LitAutoEncoder(args=args)
 
-    train_dataset = CustomDataset(debug_mode=args.debug_mode, cache_dir=args.cache_dir)
+    train_dataset = CustomDataset(val_mode=False, debug_mode=args.debug_mode, cache_dir=args.cache_dir)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
     val_dataset = CustomDataset(val_mode=True, debug_mode=args.debug_mode, cache_dir=args.cache_dir)
@@ -303,7 +329,7 @@ if __name__ == "__main__":
 
     # Lightning will automatically use all available GPUs!
     checkpoint_callback = ModelCheckpoint(
-        dirpath=saved_to_dir, 
+        dirpath=checkpoints_dir,
         every_n_epochs=args.every_n_epochs,
         save_top_k=-1,  # Save all checkpoints
         filename='{epoch}-{train_loss:.2f}'  # Customize filename pattern
@@ -311,12 +337,10 @@ if __name__ == "__main__":
 
     trainer = L.Trainer(
         strategy = "ddp_find_unused_parameters_true",
-        logger=wandb_logger,
-        max_epochs=1000,
+        logger=logger,
+        max_epochs=args.max_epochs,
         callbacks=[checkpoint_callback],
         check_val_every_n_epoch=1,
-        # Add resume_from_checkpoint if you want to resume training state too
-        # resume_from_checkpoint=checkpoint_path  # Uncomment to resume training state
     )
 
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=args.checkpoint_path if args.pretrained_mode == 1 else None)

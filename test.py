@@ -28,14 +28,17 @@ def process_kp(kp_info):
 
     return kp, scale, R, exp, t
 
-def inference(args, previsous_exp_checkpoint_path, source_img_path, target_img_path, pretrained_from_liveportrait=False):
 
-    # Initialize Lightning model
-    model = LitAutoEncoder(args=args, pretrained_from_liveportrait=pretrained_from_liveportrait, previsous_exp_checkpoint_path=previsous_exp_checkpoint_path)
 
-    if not pretrained_from_liveportrait:
-        # Load checkpoint for your checkpoint
-        checkpoint = torch.load(previsous_exp_checkpoint_path, map_location=torch.device('cpu'))
+def inference(args, source_img_path, target_img_path, checkpoint_path=None):
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = LitAutoEncoder(args=args)
+    model.to(device)
+
+    if checkpoint_path is not None:
+        # Load liveportrait checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint['state_dict'])
 
     appearance_feature_extractor = model.appearance_feature_extractor
@@ -60,6 +63,9 @@ def inference(args, previsous_exp_checkpoint_path, source_img_path, target_img_p
     source_img = prepare_source(source_img_256)[None]
     target_img = prepare_source(target_img_256)[None]
 
+    source_img = source_img.to(device)
+    target_img = target_img.to(device)
+
     with torch.no_grad():
         # Extract features from source image
         f_s = appearance_feature_extractor(source_img)
@@ -78,7 +84,6 @@ def inference(args, previsous_exp_checkpoint_path, source_img_path, target_img_p
         # Generate final image
         output_result = spade_generator(feature=ret_dct['out'])
 
-    # print(output_result)
     # Convert output tensor to image
     output_image = np.transpose(output_result.data.cpu().numpy(), [0, 2, 3, 1])[0]  # 1x3xHxW -> HxWx3
     output_image = np.clip(output_image, 0, 1)  # clip to [0,1]
@@ -89,33 +94,18 @@ def inference(args, previsous_exp_checkpoint_path, source_img_path, target_img_p
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--val_batch_size", type=int, default=4)
-    parser.add_argument("--gan_g_loss_weight", type=float, default=0.1)
-    parser.add_argument("--lr_g", type=float, default=1e-4)
-    parser.add_argument("--lr_d", type=float, default=4e-4)
-    parser.add_argument("--exp_name", type=str, default="live-portrait-gan")
-    parser.add_argument("--saved_to", type=str, default='./outputs/predictions/')
-    parser.add_argument("--checkpoint_path", type=str, default="./checkpoints/xxx.ckpt")
-    parser.add_argument("--source_img_path", type=str, default="./test_imgs/source.jpg")
-    parser.add_argument("--target_img_path", type=str, default="./test_imgs/target.jpg")
-
+    parser.add_argument("--pretrained_mode", type=int, default=3, help="do not change this")
+    parser.add_argument("--source_img_path", type=str, default="./assets/examples/driving/d19.jpg")
+    parser.add_argument("--target_img_path", type=str, default="./assets/examples/driving/d12.jpg")
+    parser.add_argument("--checkpoint_path", type=str, default="./checkpoints/your_trained_model.ckpt")
+    parser.add_argument("--saved_to", type=str, default="./outputs/predictions/")
 
     args = parser.parse_args()
 
     os.makedirs(args.saved_to, exist_ok=True)
 
-    if not os.path.exists(args.source_img_path):
-        raise FileNotFoundError(f"Source image not found: {args.source_img_path}")
-    
-    if not os.path.exists(args.target_img_path):
-        raise FileNotFoundError(f"Target image not found: {args.target_img_path}")
-    
-    if not args.checkpoint_path:
-        raise FileNotFoundError(f"Checkpoint file not found: {args.checkpoint_path}")
-
-    official_output_image = inference(args, '', args.source_img_path, args.target_img_path, pretrained_from_liveportrait=True)
-    pred_output_image = inference(args, args.checkpoint_path, args.source_img_path, args.target_img_path, pretrained_from_liveportrait=False)
+    official_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=None)
+    pred_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=args.checkpoint_path)
 
     source_img_orig = cv2.imread(args.source_img_path)
     target_img_orig = cv2.imread(args.target_img_path)
@@ -130,4 +120,6 @@ if __name__ == "__main__":
     concat_img = np.concatenate([source_img_512, target_img_512, official_output_image, pred_output_image], axis=1)
 
     # Save concatenated result
-    cv2.imwrite(os.path.join(args.saved_to, 'result.jpg'), concat_img[..., ::-1])  # Convert RGB to BGR for cv2
+    source_name = os.path.basename(args.source_img_path).split('.')[0]
+    target_name = os.path.basename(args.target_img_path).split('.')[0]
+    cv2.imwrite(os.path.join(args.saved_to, f'{source_name}_{target_name}.jpg'), concat_img[..., ::-1])  # Convert RGB to BGR for cv2
