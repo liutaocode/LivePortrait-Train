@@ -23,12 +23,12 @@ def prepare_source(img: np.ndarray) -> torch.Tensor:
     return x
 
 class CustomDataset(torch.utils.data.Dataset):
-    def __init__(self, val_mode=False, debug_mode=False, cache_dir=None, db_path_prefix=None):
+    def __init__(self, val_mode=False, debug_mode=False, cache_dir=None, db_path_prefix=None, landmark_selected_index=None):
         os.makedirs(cache_dir, exist_ok=True)
 
         self.val_mode = val_mode
         self.debug_mode = debug_mode
-
+        self.landmark_selected_index = landmark_selected_index
         frames_dir = os.path.join(db_path_prefix, 'raw_cropped_frames_jpgs')
         landmark_dir = os.path.join(db_path_prefix, 'landmarks')
         face_orientation_dir = os.path.join(db_path_prefix, 'face_orientation')
@@ -70,7 +70,7 @@ class CustomDataset(torch.utils.data.Dataset):
                     ypr_len = yaw_pitch_roll.shape[0]
 
                     min_len = min(frame_len, landmark_len, ypr_len)
-                    lmd_obj = self.read_landmark_info(clip_landmarks_dir)
+                    lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=self.landmark_selected_index)
 
                     current_db_meta_lists.append({
                         'db_name': db_name,
@@ -88,7 +88,8 @@ class CustomDataset(torch.utils.data.Dataset):
         print(f'Total count: {len(self.meta_lists)}')
 
 
-    def read_landmark_info(self, lmd_path):
+    def read_landmark_info(self, lmd_path, landmark_selected_index=None, pixel_scale=512):
+        # print('landmark_selected_index', landmark_selected_index)
         with open(lmd_path, 'r') as file:
             lmd_lines = file.readlines()
         lmd_lines.sort()
@@ -99,10 +100,16 @@ class CustomDataset(torch.utils.data.Dataset):
             coords = [c for c in line.strip().split(' ') if c]
             coords = coords[1:] # do not include the file name in the first row
             lmd_obj = []
-
-            for coord_pair in coords:
-                x, y = coord_pair.split('_')
-                lmd_obj.append((int(x)/512, int(y)/512))
+            if landmark_selected_index is not None and len(landmark_selected_index) > 0:
+                # Ensure that the coordinates are parsed as integers
+                for idx in landmark_selected_index:
+                    coord_pair = coords[idx]
+                    x, y = coord_pair.split('_')
+                    lmd_obj.append((int(x)/pixel_scale, int(y)/pixel_scale))
+            else:
+                for coord_pair in coords:
+                    x, y = coord_pair.split('_')
+                    lmd_obj.append((int(x)/pixel_scale, int(y)/pixel_scale))
             total_lmd_obj.append(lmd_obj)
 
         return np.array(total_lmd_obj, dtype=np.float32)

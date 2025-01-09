@@ -1,4 +1,4 @@
-import os, torch
+import os, torch, torch.nn as nn, torch.utils.data as data, torchvision as tv
 import lightning as L
 import yaml
 from src.config.argument_config import ArgumentConfig
@@ -10,7 +10,7 @@ from src.modules.warping_network import WarpingNetwork
 from src.modules.motion_extractor import MotionExtractor
 from src.modules.appearance_feature_extractor import AppearanceFeatureExtractor
 from src.utils.camera import get_rotation_matrix, headpose_pred_to_degree
-from src.losses import KeypointPriorLoss, EquivarianceLoss, FeatureMatchingLoss, HeadPoseLoss, DeformationPriorLoss
+from src.losses import KeypointPriorLoss, EquivarianceLoss, WingLoss, HeadPoseLoss, DeformationPriorLoss
 from src.datasets import CustomDataset
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.loggers import TensorBoardLogger
@@ -55,11 +55,15 @@ class LitAutoEncoder(L.LightningModule):
 
         self.vgg_loss = VGGLoss()
 
+        self.wing_loss = WingLoss(omega=self.args.wing_loss_omega, epsilon=self.args.wing_loss_epsilon)
+
+        self.num_of_selected_landmarks = len(self.args.landmark_selected_index)
+        print('self.num_of_selected_landmarks for wing loss', self.num_of_selected_landmarks)
+
         print(model_config)
 
     def _load_pretrained_weights(self):
         """Handle different pretrained model loading modes"""
-
         # you can download the pretrained weights from the official LivePortrait repo
         checkpoint_paths = {
             'F': 'pretrained_weights/liveportrait/base_models/appearance_feature_extractor.pth',
@@ -67,7 +71,6 @@ class LitAutoEncoder(L.LightningModule):
             'G': 'pretrained_weights/liveportrait/base_models/spade_generator.pth',
             'W': 'pretrained_weights/liveportrait/base_models/warping_module.pth'
         }
-
         mode_handlers = {
             0: self._train_from_scratch,
             1: lambda: None,  # Resume training handled by Lightning trainer
@@ -167,7 +170,7 @@ class LitAutoEncoder(L.LightningModule):
         target_img = batch['target_img']
         target_img_512 = batch['target_img_512']
         target_ypr = batch['target_ypr']
-        target_lmd = batch['target_lmd'] # TODO for wing loss
+        target_lmd = batch['target_lmd']
 
         f_s = self.appearance_feature_extractor(source_img)
         x_s_info = self.motion_extractor(source_img)
@@ -199,6 +202,9 @@ class LitAutoEncoder(L.LightningModule):
 
         l_vgg = self.vgg_loss(output_result, target_img_512)
 
+
+        l_wing = self.wing_loss(x_d_full[:, :self.num_of_selected_landmarks, :2], target_lmd)
+
         img_recon_pred = self.dis_gan(output_result * 2 - 1)
         gan_g_loss = self.g_nonsaturating_loss(img_recon_pred)
 
@@ -214,9 +220,9 @@ class LitAutoEncoder(L.LightningModule):
             self.args.prior_loss_weight * l_prior +
             self.args.deformation_loss_weight * l_deformation +
             self.args.headpose_loss_weight * l_headpose +
-            self.args.gan_loss_weight * gan_g_loss
+            self.args.gan_loss_weight * gan_g_loss +
+            self.args.wing_loss_weight * l_wing
         )
-
 
         self.log("train_loss", loss_total, on_step=True, prog_bar=True)
         self.log("recon_loss", l_recon, on_step=True)
@@ -226,6 +232,7 @@ class LitAutoEncoder(L.LightningModule):
         self.log("headpose_loss", l_headpose, on_step=True)
         self.log("vgg_loss", l_vgg, on_step=True)
         self.log("gan_generator_loss", gan_g_loss, on_step=True)
+        self.log("wing_loss", l_wing, on_step=True)
 
         self.manual_backward(loss_total)
         optimizer_g.step()
@@ -264,15 +271,17 @@ class LitAutoEncoder(L.LightningModule):
         )
         return opt_g, opt_d
 
+    def validation_step(self, batch, batch_idx):
+        # TODO
+        pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_batch_size", type=int, default=4)
-    parser.add_argument("--gan_g_loss_weight", type=float, default=0.01)
     parser.add_argument("--lr_g", type=float, default=1e-4)
     parser.add_argument("--lr_d", type=float, default=4e-4)
-    parser.add_argument("--exp_name", type=str, default="exp_name")
+    parser.add_argument("--exp_name", type=str, default="expname")
     parser.add_argument("--exp_dir", type=str, default="./exps/exps1/")
     parser.add_argument("--cache_dir", type=str, default="./assets/db_cache/")
     parser.add_argument("--vgg_loss_weight", type=float, default=0.1)
@@ -281,6 +290,7 @@ if __name__ == "__main__":
     parser.add_argument("--deformation_loss_weight", type=float, default=1)
     parser.add_argument("--headpose_loss_weight", type=float, default=1)
     parser.add_argument("--equivariance_loss_weight", type=float, default=1)
+    parser.add_argument("--wing_loss_weight", type=float, default=1)
     parser.add_argument("--every_n_epochs", type=int, default=1, help="save checkpoint every n epochs")
     parser.add_argument("--recon_loss_weight", type=float, default=0, help="weight for reconstruction loss. 0 means no reconstruction loss.")
     parser.add_argument("--pretrained_mode", type=int, default=0, help="0: train from scratch, 1: resume training from lightning checkpoint, 2: partial training from lightning checkpoint, 3: train from official LivePortrait model")
@@ -290,10 +300,15 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_mode", type=bool, default=False)
     parser.add_argument("--clip_grad_norm", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=420)
+    parser.add_argument("--wing_loss_omega", type=float, default=10, help="omega for wing loss")
+    parser.add_argument("--wing_loss_epsilon", type=float, default=2, help="epsilon for wing loss")
+    parser.add_argument("--landmark_selected_index", type=str, default="36,39,37,42,45,43,48,54,51,57", help="landmark selected index for wing loss")
 
     args = parser.parse_args()
 
     seed_everything(args.seed)
+
+    args.landmark_selected_index = [int(i) for i in args.landmark_selected_index.split(',')]
 
     exp_prefix_name = f"mode_{args.pretrained_mode}_time_{time.strftime('%Y%m%d%H%M%S')}"
     checkpoints_dir = f"{args.exp_dir}/{args.exp_name}/{exp_prefix_name}/checkpoints/"
@@ -321,10 +336,10 @@ if __name__ == "__main__":
     # Initialize model
     model = LitAutoEncoder(args=args)
 
-    train_dataset = CustomDataset(val_mode=False, debug_mode=args.debug_mode, cache_dir=args.cache_dir)
+    train_dataset = CustomDataset(val_mode=False, debug_mode=args.debug_mode, cache_dir=args.cache_dir, landmark_selected_index=args.landmark_selected_index)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
-    val_dataset = CustomDataset(val_mode=True, debug_mode=args.debug_mode, cache_dir=args.cache_dir)
+    val_dataset = CustomDataset(val_mode=True, debug_mode=args.debug_mode, cache_dir=args.cache_dir, landmark_selected_index=args.landmark_selected_index)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.val_batch_size, shuffle=False, drop_last=True)
 
     # Lightning will automatically use all available GPUs!

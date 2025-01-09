@@ -1,9 +1,6 @@
 import torch
 import torch.nn.functional as F
-import numpy as np
-import cv2
 from torch import nn
-import os
 import math
 
 def make_coordinate_grid_2d(shape):
@@ -114,6 +111,7 @@ class EquivarianceLoss(nn.Module):
 
         # 3. Apply transformation to image
         transformed_image = transform.transform_frame(x_s_256)
+
         # # Save transformed image as PNG
         # # Convert from tensor [B,C,H,W] to numpy [H,W,C]
         # img_np = transformed_image[0].detach().cpu().numpy()  # Take first image from batch
