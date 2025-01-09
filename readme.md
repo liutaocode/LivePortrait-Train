@@ -10,7 +10,7 @@ The image above shows a comparison between:
 - Source image (leftmost)
 - Target image (second from left) 
 - Official LivePortrait results (second from right)
-- This repository's results (rightmost)
+- This repository's results (rightmost, training from scratch)
 
 
 ## Project Status
