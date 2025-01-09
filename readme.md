@@ -73,7 +73,7 @@ python train.py \
     --equivariance_loss_weight 1.0 \
     --every_n_epochs 1 \
     --recon_loss_weight 10.0 \
-    --pretrained_mode 2 \
+    --pretrained_mode 0 \
     --checkpoint_path "" \
     --max_epochs 1000 \
     --debug_mode False \
