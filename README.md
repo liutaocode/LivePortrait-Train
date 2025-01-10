@@ -12,20 +12,24 @@ The image above shows a comparison between:
 - Official LivePortrait results (second from right)
 - This repository's results (rightmost, training from scratch)
 
+## Training Roadmap
+
+- Stage 1: Motion Transfer (Majority of codebase)
+- Stage 2: Shoulder Stitching Module
+- Stage 3: Retargeting Module
 
 ## Project Status
 
 ### ✅ Completed Features
-- Stage 1 Training Implementation
+- Stage 1 Training or Fine-tuning Implementation
 - PyTorch Lightning Integration  
-- Basic GAN Architecture
+- GAN Architecture (Single or Cascaded)
 - VGG-based Perceptual Loss (Cascaded)
-- Wing Loss (under testing)
+- Wing Loss (Integrated, under testing)
 
 With these completed components, you can train a basic version of LivePortrait Stage 1.
 
 ### 🚧 Work in Progress
-- GAN Cascade Loss Implementation
 - Stage 2 & 3 Implementation
 
 ## Implementation Details
@@ -61,9 +65,9 @@ python train.py \
     --batch_size 8 \
     --val_batch_size 4 \
     --lr_g 1e-4 \
-    --lr_d 4e-4 \
-    --exp_name "exp_wingloss" \
-    --exp_dir "./exps/exps3/" \
+    --lr_d 1e-4 \
+    --exp_name "exp_name" \
+    --exp_dir "./exps/exp_name/" \
     --cache_dir "./assets/db_cache/" \
     --vgg_loss_weight 1.0 \
     --gan_loss_weight 0.1 \
@@ -74,14 +78,18 @@ python train.py \
     --every_n_epochs 1 \
     --recon_loss_weight 10.0 \
     --pretrained_mode 0 \
-    --checkpoint_path "" \
+    --gan_multi_scale_mode True \
+    --checkpoint_path "your_pretrained_ckpt_optional.ckpt" \
     --max_epochs 1000 \
     --debug_mode False \
     --wandb_mode True \
     --clip_grad_norm 1.0 \
     --wing_loss_omega 10 \
     --wing_loss_epsilon 2 \
-    --landmark_selected_index "36,39,37,42,45,43,48,54,51,57"
+    --landmark_selected_index "36,39,37,42,45,43,48,54,51,57" \
+    --use_gradient_penalty True \
+    --gp_weight 10.0
+
 ```
 
 ### `Test.py` 

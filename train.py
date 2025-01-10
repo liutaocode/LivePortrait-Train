@@ -1,4 +1,4 @@
-import os, torch, torch.nn as nn, torch.utils.data as data, torchvision as tv
+import os, torch, torch.nn as nn
 import lightning as L
 import yaml
 from src.config.argument_config import ArgumentConfig
@@ -10,13 +10,13 @@ from src.modules.warping_network import WarpingNetwork
 from src.modules.motion_extractor import MotionExtractor
 from src.modules.appearance_feature_extractor import AppearanceFeatureExtractor
 from src.utils.camera import get_rotation_matrix, headpose_pred_to_degree
-from src.losses import KeypointPriorLoss, EquivarianceLoss, WingLoss, HeadPoseLoss, DeformationPriorLoss
+from src.losses import KeypointPriorLoss, EquivarianceLoss, WingLoss, HeadPoseLoss, DeformationPriorLoss, multi_scale_g_nonsaturating_loss, multi_scale_d_nonsaturating_loss, single_scale_g_nonsaturating_loss, single_scale_d_nonsaturating_loss
 from src.datasets import CustomDataset
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from src.vgg19 import VGGLoss
-from src.discriminator import Discriminator
+from src.discriminator import Discriminator, MultiscaleDiscriminator
 import torch.nn.functional as F
 import argparse
 import time
@@ -37,7 +37,7 @@ class LitAutoEncoder(L.LightningModule):
         self.warping_module = WarpingNetwork(**model_config['model_params']['warping_module_params'])
         self.spade_generator = SPADEDecoder(**model_config['model_params']['spade_generator_params'])
 
-        self.dis_gan = Discriminator()
+        self.dis_gan = self._init_gan_discriminator()
 
         self._load_pretrained_weights()
         # losses
@@ -62,6 +62,25 @@ class LitAutoEncoder(L.LightningModule):
 
         print(model_config)
 
+    def _init_gan_discriminator(self):
+        if self.args.gan_multi_scale_mode:
+            import functools
+
+            norm_layer = functools.partial(nn.InstanceNorm2d, affine=False)
+
+            self.dis_gan = MultiscaleDiscriminator(
+                input_nc=3,
+                ndf=128,
+                norm_layer=norm_layer,
+                use_sigmoid=False,
+                num_D=3,
+                getIntermFeat=False
+            )
+        else:
+            self.dis_gan = Discriminator()
+
+        return self.dis_gan
+
     def _load_pretrained_weights(self):
         """Handle different pretrained model loading modes"""
         # you can download the pretrained weights from the official LivePortrait repo
@@ -84,6 +103,7 @@ class LitAutoEncoder(L.LightningModule):
         mode_handlers[self.args.pretrained_mode]()
 
     def _train_from_scratch(self):
+        # you can initialize the model from specific parameters here,ignore it if you don't need it
         pass
 
     def _load_official_weights(self, checkpoint_paths):
@@ -136,14 +156,6 @@ class LitAutoEncoder(L.LightningModule):
         print(f"Missing keys: {missing_keys}")
         print(f"Unexpected keys: {unexpected_keys}")
 
-    def g_nonsaturating_loss(self, fake_pred):
-        return F.softplus(-fake_pred).mean()
-
-    def d_nonsaturating_loss(self, fake_pred, real_pred):
-        real_loss = F.softplus(-real_pred)
-        fake_loss = F.softplus(fake_pred)
-
-        return real_loss.mean() + fake_loss.mean()
 
     def process_kp(self, kp_info):
         bs = kp_info['kp'].shape[0]
@@ -160,6 +172,46 @@ class LitAutoEncoder(L.LightningModule):
         t = kp_info['t'].unsqueeze(1)
 
         return kp, scale, R, exp, t
+
+    def compute_gradient_penalty(self, real_samples, fake_samples):
+        batch_size = real_samples.size(0)
+
+        # Random interpolation coefficient for each sample in the batch
+        alpha = torch.rand(batch_size, 1, 1, 1, device=real_samples.device)
+
+        # Interpolate between real and fake samples
+        interpolates = alpha * real_samples + (1 - alpha) * fake_samples
+        interpolates.requires_grad_(True)
+
+        # Calculate discriminator output for interpolated images
+        d_interpolates = self.dis_gan(interpolates)
+
+        # Handle both single-scale and multi-scale discriminator outputs
+        if isinstance(d_interpolates, list):
+            # For multi-scale discriminator, use the last scale
+            d_interpolates = d_interpolates[-1][-1]
+
+        # Create gradient outputs
+        grad_outputs = torch.ones_like(d_interpolates, device=real_samples.device)
+
+        # Calculate gradients
+        gradients = torch.autograd.grad(
+            outputs=d_interpolates,
+            inputs=interpolates,
+            grad_outputs=grad_outputs,
+            create_graph=True,
+            retain_graph=True,
+            only_inputs=True
+        )[0]
+
+        # Flatten gradients to easily calculate the norm
+        gradients = gradients.view(batch_size, -1)
+
+        # Calculate gradient penalty with numerical stability
+        gradient_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
+        gradient_penalty = ((gradient_norm - 1) ** 2).mean()
+
+        return gradient_penalty
 
     def training_step(self, batch, batch_idx):
 
@@ -202,11 +254,15 @@ class LitAutoEncoder(L.LightningModule):
 
         l_vgg = self.vgg_loss(output_result, target_img_512)
 
-
         l_wing = self.wing_loss(x_d_full[:, :self.num_of_selected_landmarks, :2], target_lmd)
 
         img_recon_pred = self.dis_gan(output_result * 2 - 1)
-        gan_g_loss = self.g_nonsaturating_loss(img_recon_pred)
+
+        if self.args.gan_multi_scale_mode:
+            gan_g_loss = multi_scale_g_nonsaturating_loss(img_recon_pred)
+        else:
+            gan_g_loss = single_scale_g_nonsaturating_loss(img_recon_pred)
+
 
         # Add gradient clipping for stable training
         if self.args.clip_grad_norm > 0:
@@ -241,12 +297,23 @@ class LitAutoEncoder(L.LightningModule):
 
         real_img_pred = self.dis_gan(target_img_512 * 2 - 1)
         recon_img_pred = self.dis_gan(output_result.detach() * 2 - 1)
-        gan_d_loss = self.args.gan_loss_weight * self.d_nonsaturating_loss(recon_img_pred, real_img_pred)
+
+        if self.args.gan_multi_scale_mode:
+            gan_d_loss = multi_scale_d_nonsaturating_loss(recon_img_pred, real_img_pred)
+        else:
+            gan_d_loss = single_scale_d_nonsaturating_loss(recon_img_pred, real_img_pred)
+
+        # Calculate gradient penalty before backward
+        if self.args.use_gradient_penalty:
+            gp = self.compute_gradient_penalty(target_img_512 * 2 - 1, output_result.detach() * 2 - 1)
+            gan_d_loss = gan_d_loss + self.args.gp_weight * gp
+            self.log("gradient_penalty", gp, on_step=True)
+
+        gan_d_loss = self.args.gan_loss_weight * gan_d_loss
         self.manual_backward(gan_d_loss)
         self.log("gan_discriminator_loss", gan_d_loss, on_step=True)
 
         optimizer_d.step()
-
 
         return loss_total
 
@@ -272,15 +339,17 @@ class LitAutoEncoder(L.LightningModule):
         return opt_g, opt_d
 
     def validation_step(self, batch, batch_idx):
-        # TODO
+        # TODO Add your own validation rules here
         pass
+
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--val_batch_size", type=int, default=4)
     parser.add_argument("--lr_g", type=float, default=1e-4)
-    parser.add_argument("--lr_d", type=float, default=4e-4)
+    parser.add_argument("--lr_d", type=float, default=1e-4)
     parser.add_argument("--exp_name", type=str, default="exp_name")
     parser.add_argument("--exp_dir", type=str, default="./exps/exp_name/")
     parser.add_argument("--cache_dir", type=str, default="./assets/db_cache/")
@@ -303,6 +372,9 @@ if __name__ == "__main__":
     parser.add_argument("--wing_loss_omega", type=float, default=10, help="omega for wing loss")
     parser.add_argument("--wing_loss_epsilon", type=float, default=2, help="epsilon for wing loss")
     parser.add_argument("--landmark_selected_index", type=str, default="36,39,37,42,45,43,48,54,51,57", help="landmark selected index for wing loss")
+    parser.add_argument("--gan_multi_scale_mode", type=lambda x: x.lower() == 'true' , default=False, help="false: single scale, true: multi scale")
+    parser.add_argument("--use_gradient_penalty", type=bool, default=True)
+    parser.add_argument("--gp_weight", type=float, default=10.0)
 
     args = parser.parse_args()
 

@@ -3,6 +3,38 @@ import torch.nn.functional as F
 from torch import nn
 import math
 
+def multi_scale_g_nonsaturating_loss(fake_pred):
+    # fake_pred is a list of discriminator outputs at each scale
+    loss = 0
+    for scale in fake_pred:  # Iterate through discriminator outputs at each scale
+        # Take the last layer output of each scale
+        last_layer = scale[-1]
+        loss += F.softplus(-last_layer).mean()
+    return loss / len(fake_pred)  # Average over all scales
+
+def multi_scale_d_nonsaturating_loss(fake_pred, real_pred):
+    loss = 0
+    # Iterate through discriminator outputs at each scale
+    for scale_fake, scale_real in zip(fake_pred, real_pred):
+        # Take the last layer output of each scale
+        fake_last = scale_fake[-1]
+        real_last = scale_real[-1]
+
+        real_loss = F.softplus(-real_last)
+        fake_loss = F.softplus(fake_last)
+        loss += real_loss.mean() + fake_loss.mean()
+
+    return loss / len(fake_pred)  # Average over all scales
+
+def single_scale_g_nonsaturating_loss(fake_pred):
+    return F.softplus(-fake_pred).mean()
+
+def single_scale_d_nonsaturating_loss(fake_pred, real_pred):
+    real_loss = F.softplus(-real_pred)
+    fake_loss = F.softplus(fake_pred)
+
+    return real_loss.mean() + fake_loss.mean()
+
 def make_coordinate_grid_2d(shape):
     """Create a meshgrid [-1,1] x [-1,1] of given shape"""
     h, w = shape
@@ -74,15 +106,6 @@ class FeatureMatchingLoss(nn.Module):
         return loss
 
 
-# class EquivarianceLoss(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.criterion = nn.L1Loss()
-
-#     def forward(self, kp_d, reverse_kp):
-#         loss = self.criterion(kp_d[:, :, :2], reverse_kp)
-#         return loss
-
 class EquivarianceLoss(nn.Module):
     """Enhanced Equivariance loss for keypoint detection"""
     def __init__(self, sigma_affine=0.05, sigma_tps=0.005, points_tps=5):
@@ -112,6 +135,7 @@ class EquivarianceLoss(nn.Module):
         # 3. Apply transformation to image
         transformed_image = transform.transform_frame(x_s_256)
 
+        # uncomment the following code if you want to save transformed image
         # # Save transformed image as PNG
         # # Convert from tensor [B,C,H,W] to numpy [H,W,C]
         # img_np = transformed_image[0].detach().cpu().numpy()  # Take first image from batch
