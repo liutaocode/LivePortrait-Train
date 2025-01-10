@@ -263,11 +263,6 @@ class LitAutoEncoder(L.LightningModule):
         else:
             gan_g_loss = single_scale_g_nonsaturating_loss(img_recon_pred)
 
-
-        # Add gradient clipping for stable training
-        if self.args.clip_grad_norm > 0:
-            torch.nn.utils.clip_grad_norm_(self.parameters(), self.args.clip_grad_norm)
-
         # Add loss scaling to prevent any single loss from dominating
         loss_total = (
             self.args.recon_loss_weight * l_recon +
@@ -291,6 +286,11 @@ class LitAutoEncoder(L.LightningModule):
         self.log("wing_loss", l_wing, on_step=True)
 
         self.manual_backward(loss_total)
+
+        # Add gradient clipping for stable training
+        if self.args.clip_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(self.parameters(), self.args.clip_grad_norm)
+
         optimizer_g.step()
 
         optimizer_d.zero_grad()
@@ -309,7 +309,6 @@ class LitAutoEncoder(L.LightningModule):
             gan_d_loss = gan_d_loss + self.args.gp_weight * gp
             self.log("gradient_penalty", gp, on_step=True)
 
-        gan_d_loss = self.args.gan_loss_weight * gan_d_loss
         self.manual_backward(gan_d_loss)
         self.log("gan_discriminator_loss", gan_d_loss, on_step=True)
 
@@ -339,8 +338,24 @@ class LitAutoEncoder(L.LightningModule):
         return opt_g, opt_d
 
     def validation_step(self, batch, batch_idx):
-        # TODO Add your own validation rules here
-        pass
+        source_img = batch['source_img']
+        target_img_512 = batch['target_img_512']
+
+        f_s = self.appearance_feature_extractor(source_img)
+        x_s_info = self.motion_extractor(source_img)
+
+        x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = self.process_kp(x_s_info)
+
+        x_s_full = x_s_scale * (x_s_kp @ x_s_R + x_s_exp) + x_s_t
+
+        ret_dct = self.warping_module(f_s, kp_source=x_s_full, kp_driving=x_s_full)
+        output_result = self.spade_generator(feature=ret_dct['out'])
+
+        l_recon = torch.nn.functional.mse_loss(output_result, target_img_512)
+        l_vgg = self.vgg_loss(output_result, target_img_512)
+
+        self.log("val_recon_loss", l_recon, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val_vgg_loss", l_vgg, on_step=False, on_epoch=True, prog_bar=True)
 
 
 
