@@ -12,11 +12,11 @@ The image above shows a comparison between:
 - Official LivePortrait results (second from right)
 - This repository's results (rightmost, training from scratch)
 
-## Training Roadmap
+## 🛣️ Training Roadmap
 
 - Stage 1: Motion Transfer (Majority of codebase)
 - Stage 2: Shoulder Stitching Module
-- Stage 3: Retargeting Module
+- Stage 3: Eye/Mouth Retargeting Module
 
 ## Project Status
 
