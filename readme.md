@@ -19,13 +19,13 @@ The image above shows a comparison between:
 - Stage 1 Training Implementation
 - PyTorch Lightning Integration  
 - Basic GAN Architecture
-- VGG-based Perceptual Loss
+- VGG-based Perceptual Loss (Cascaded)
 - Wing Loss (under testing)
 
 With these completed components, you can train a basic version of LivePortrait Stage 1.
 
 ### 🚧 Work in Progress
-- Cascade Loss Implementation
+- GAN Cascade Loss Implementation
 - Stage 2 & 3 Implementation
 
 ## Implementation Details
