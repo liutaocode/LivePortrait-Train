@@ -202,6 +202,25 @@ class DeformationPriorLoss(nn.Module):
         loss = delta_d.abs().mean()
         return loss
 
+# original
+# class WingLoss(nn.Module):
+#     def __init__(self, omega=10, epsilon=2):
+#         super(WingLoss, self).__init__()
+#         self.omega = omega
+#         self.epsilon = epsilon
+
+#     def forward(self, pred, target):
+#         y = target
+#         y_hat = pred
+#         delta_y = (y - y_hat).abs()
+#         delta_y1 = delta_y[delta_y < self.omega]
+#         delta_y2 = delta_y[delta_y >= self.omega]
+#         loss1 = self.omega * torch.log(1 + delta_y1 / self.epsilon)
+#         C = self.omega - self.omega * math.log(1 + self.omega / self.epsilon)
+#         loss2 = delta_y2 - C
+#         return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
+
+# modified
 class WingLoss(nn.Module):
     def __init__(self, omega=10, epsilon=2):
         super(WingLoss, self).__init__()
@@ -209,12 +228,11 @@ class WingLoss(nn.Module):
         self.epsilon = epsilon
 
     def forward(self, pred, target):
-        y = target
-        y_hat = pred
-        delta_y = (y - y_hat).abs()
-        delta_y1 = delta_y[delta_y < self.omega]
-        delta_y2 = delta_y[delta_y >= self.omega]
-        loss1 = self.omega * torch.log(1 + delta_y1 / self.epsilon)
-        C = self.omega - self.omega * math.log(1 + self.omega / self.epsilon)
-        loss2 = delta_y2 - C
-        return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
+        delta_y = (pred - target).abs()
+        C = self.omega - self.omega * torch.log(torch.tensor(1 + self.omega / self.epsilon))
+        loss = torch.where(
+            delta_y < self.omega,
+            self.omega * torch.log(1 + delta_y / self.epsilon),
+            delta_y - C
+        )
+        return delta_y, loss.mean()
