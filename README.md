@@ -101,6 +101,8 @@ Inference script that generates the following output sequence:
 
 > Note: Due to certain constraints, pre-trained models are not available for release at this time.
 
+> The progress of this repository depends on my spare time. Any contributions are welcome.
+
 ## References
 - [Official LivePortrait Repository](https://github.com/KwaiVGI/LivePortrait)
 - [Face-vid2vid](https://github.com/zhengkw18/face-vid2vid)
