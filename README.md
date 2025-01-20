@@ -84,8 +84,8 @@ python train.py \
     --debug_mode False \
     --wandb_mode True \
     --clip_grad_norm 1.0 \
-    --wing_loss_omega 10 \
-    --wing_loss_epsilon 2 \
+    --wing_loss_omega 0.1 \
+    --wing_loss_epsilon 0.01 \
     --landmark_selected_index "36,39,37,42,45,43,48,54,51,57" \
     --use_gradient_penalty True \
     --gp_weight 10.0

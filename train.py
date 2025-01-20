@@ -223,6 +223,7 @@ class LitAutoEncoder(L.LightningModule):
         target_img_512 = batch['target_img_512']
         target_ypr = batch['target_ypr']
         target_lmd = batch['target_lmd']
+        source_lmd = batch['source_lmd']
 
         f_s = self.appearance_feature_extractor(source_img)
         x_s_info = self.motion_extractor(source_img)
@@ -254,7 +255,16 @@ class LitAutoEncoder(L.LightningModule):
 
         l_vgg = self.vgg_loss(output_result, target_img_512)
 
-        l_wing = self.wing_loss(x_d_full[:, :self.num_of_selected_landmarks, :2], target_lmd)
+        x_d_full_selected = (x_d_full[:, :self.num_of_selected_landmarks, :2] + 1)/2 # to [0, 1]
+        x_s_full_selected = (x_s_full[:, :self.num_of_selected_landmarks, :2] + 1)/2 # to [0, 1]
+
+        l_wing_target = self.wing_loss(x_d_full_selected, target_lmd)
+        self.log("wing_target_loss", l_wing_target, on_step=True, prog_bar=True)
+
+        l_wing_source = self.wing_loss(x_s_full_selected, source_lmd)
+        self.log("wing_source_loss", l_wing_source, on_step=True, prog_bar=True)
+
+        l_wing = l_wing_target + l_wing_source
 
         img_recon_pred = self.dis_gan(output_result * 2 - 1)
 
