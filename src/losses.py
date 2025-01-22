@@ -1,7 +1,48 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
-import math
+from src.utils.camera import get_rotation_matrix
+from src.utils.camera import headpose_pred_to_degree
+
+# modified code (change the headpose to mse mode)
+def process_kp(kp_info):
+    bs = kp_info['kp'].shape[0]
+
+    kp_info['pitch'] = 90.0 * torch.tanh(kp_info['pitch'])
+    kp_info['yaw'] = 90.0 * torch.tanh(kp_info['yaw'])
+    kp_info['roll'] = 90.0 * torch.tanh(kp_info['roll'])
+
+    # kp_info['pitch'] = headpose_pred_to_degree(kp_info['pitch'])[:, None]  # Bx1
+    # kp_info['yaw'] = headpose_pred_to_degree(kp_info['yaw'])[:, None]  # Bx1
+    # kp_info['roll'] = headpose_pred_to_degree(kp_info['roll'])[:, None]  # Bx1
+    kp_info['kp'] = kp_info['kp'].reshape(bs, -1, 3)  # BxNx3
+    kp_info['exp'] = kp_info['exp'].reshape(bs, -1, 3)  # BxNx3
+
+    kp = kp_info['kp']
+    scale = kp_info['scale'].unsqueeze(-1)
+    R = get_rotation_matrix(kp_info['pitch'], kp_info['yaw'], kp_info['roll'])
+    exp = kp_info['exp']
+    t = kp_info['t'].unsqueeze(1)
+
+    return kp, scale, R, exp, t
+
+# liveportrait original code (classification mode)
+def process_kp_original(kp_info):
+    bs = kp_info['kp'].shape[0]
+    kp_info['pitch'] = headpose_pred_to_degree(kp_info['pitch'])[:, None]
+    kp_info['yaw'] = headpose_pred_to_degree(kp_info['yaw'])[:, None]
+    kp_info['roll'] = headpose_pred_to_degree(kp_info['roll'])[:, None]
+    kp_info['kp'] = kp_info['kp'].reshape(bs, -1, 3)
+    kp_info['exp'] = kp_info['exp'].reshape(bs, -1, 3)
+
+    kp = kp_info['kp']
+    scale = kp_info['scale'].unsqueeze(-1)
+    R = get_rotation_matrix(kp_info['pitch'], kp_info['yaw'], kp_info['roll'])
+    exp = kp_info['exp']
+    t = kp_info['t'].unsqueeze(1)
+
+    return kp, scale, R, exp, t
+
 
 def multi_scale_g_nonsaturating_loss(fake_pred):
     # fake_pred is a list of discriminator outputs at each scale
@@ -114,15 +155,15 @@ class EquivarianceLoss(nn.Module):
         self.sigma_tps = sigma_tps
         self.points_tps = points_tps
 
-    def forward(self, x_s_256, x_s_kp, motion_extractor):
+    def forward(self, x_t_256, x_t_full, x_s_kp, motion_extractor):
         """
         Args:
             x_s_256: Source image [B, C, H, W]
             motion_extractor: Motion extraction network
         """
-        batch_size = x_s_256.shape[0]
+        batch_size = x_t_256.shape[0]
 
-        # 1. Create random transformation
+        # 1. Create a random transformation
         transform = Transform(batch_size,
                            self.sigma_affine,
                            self.sigma_tps,
@@ -130,10 +171,10 @@ class EquivarianceLoss(nn.Module):
 
         # 2. Extract keypoints from original image
         # x_s_info = motion_extractor(x_s_256)
-        original_kp = x_s_kp.reshape(batch_size, -1, 3)  # BxNx3
+        original_kp = x_t_full.reshape(batch_size, -1, 3)  # BxNx3
 
         # 3. Apply transformation to image
-        transformed_image = transform.transform_frame(x_s_256)
+        transformed_image = transform.transform_frame(x_t_256)
 
         # uncomment the following code if you want to save transformed image
         # # Save transformed image as PNG
@@ -150,13 +191,16 @@ class EquivarianceLoss(nn.Module):
 
         # 4. Extract keypoints from transformed image
         transformed_info = motion_extractor(transformed_image)
-        transformed_kp = transformed_info['kp'].reshape(batch_size, -1, 3)  # BxNx3
+        # transformed_kp_info = transformed_info['kp'].reshape(batch_size, -1, 3)  # BxNx3
+        _, x_transformed_scale, x_transformed_R, x_transformed_exp, x_transformed_t = process_kp(transformed_info)
+
+        x_transformed_full = x_transformed_scale * (x_s_kp @ x_transformed_R + x_transformed_exp) + x_transformed_t
 
         # 5. Apply inverse transformation to transformed keypoints
-        reverse_kp = transform.warp_coordinates(transformed_kp[..., :2])  # Only transform x,y coordinates
+        reverse_transformed_full = transform.warp_coordinates(x_transformed_full[..., :2])  # Only transform x,y coordinates
 
         # 6. Calculate loss between original and reverse-transformed keypoints
-        loss = torch.mean((original_kp[..., :2] - reverse_kp) ** 2)
+        loss = torch.mean((original_kp[..., :2] - reverse_transformed_full) ** 2)
 
         return loss
 
@@ -202,7 +246,7 @@ class DeformationPriorLoss(nn.Module):
         loss = delta_d.abs().mean()
         return loss
 
-# original
+# Original WingLoss
 # class WingLoss(nn.Module):
 #     def __init__(self, omega=10, epsilon=2):
 #         super(WingLoss, self).__init__()
@@ -220,7 +264,7 @@ class DeformationPriorLoss(nn.Module):
 #         loss2 = delta_y2 - C
 #         return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
 
-# modified
+# Modified WingLoss
 class WingLoss(nn.Module):
     def __init__(self, omega=10, epsilon=2):
         super(WingLoss, self).__init__()

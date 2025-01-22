@@ -9,7 +9,6 @@ from src.modules.spade_generator import SPADEDecoder
 from src.modules.warping_network import WarpingNetwork
 from src.modules.motion_extractor import MotionExtractor
 from src.modules.appearance_feature_extractor import AppearanceFeatureExtractor
-from src.utils.camera import get_rotation_matrix, headpose_pred_to_degree
 from src.losses import KeypointPriorLoss, EquivarianceLoss, WingLoss, HeadPoseLoss, DeformationPriorLoss, multi_scale_g_nonsaturating_loss, multi_scale_d_nonsaturating_loss, single_scale_g_nonsaturating_loss, single_scale_d_nonsaturating_loss
 from src.datasets import CustomDataset
 from lightning.pytorch.loggers import WandbLogger
@@ -17,10 +16,10 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from lightning.pytorch.callbacks import ModelCheckpoint
 from src.vgg19 import VGGLoss
 from src.discriminator import Discriminator, MultiscaleDiscriminator
-import torch.nn.functional as F
 import argparse
 import time
 from pytorch_lightning import seed_everything
+from src.losses import process_kp
 
 class LitAutoEncoder(L.LightningModule):
     def __init__(self, args):
@@ -156,23 +155,6 @@ class LitAutoEncoder(L.LightningModule):
         print(f"Missing keys: {missing_keys}")
         print(f"Unexpected keys: {unexpected_keys}")
 
-
-    def process_kp(self, kp_info):
-        bs = kp_info['kp'].shape[0]
-        kp_info['pitch'] = headpose_pred_to_degree(kp_info['pitch'])[:, None]  # Bx1
-        kp_info['yaw'] = headpose_pred_to_degree(kp_info['yaw'])[:, None]  # Bx1
-        kp_info['roll'] = headpose_pred_to_degree(kp_info['roll'])[:, None]  # Bx1
-        kp_info['kp'] = kp_info['kp'].reshape(bs, -1, 3)  # BxNx3
-        kp_info['exp'] = kp_info['exp'].reshape(bs, -1, 3)  # BxNx3
-
-        kp = kp_info['kp']
-        scale = kp_info['scale'].unsqueeze(-1)
-        R = get_rotation_matrix(kp_info['pitch'], kp_info['yaw'], kp_info['roll'])
-        exp = kp_info['exp']
-        t = kp_info['t'].unsqueeze(1)
-
-        return kp, scale, R, exp, t
-
     def compute_gradient_penalty(self, real_samples, fake_samples):
         batch_size = real_samples.size(0)
 
@@ -228,15 +210,15 @@ class LitAutoEncoder(L.LightningModule):
         f_s = self.appearance_feature_extractor(source_img)
         x_s_info = self.motion_extractor(source_img)
 
-        x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = self.process_kp(x_s_info)
+        x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp(x_s_info)
 
-        x_s_full = x_s_scale * ( x_s_kp @ x_s_R + x_s_exp) + x_s_t
+        x_s_full = x_s_scale * (x_s_kp @ x_s_R + x_s_exp) + x_s_t
 
         x_t_info = self.motion_extractor(target_img)
 
-        x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = self.process_kp(x_t_info)
+        _, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp(x_t_info)
 
-        x_d_full = x_t_scale * (x_t_kp @ x_t_R + x_t_exp) + x_t_t
+        x_d_full = x_t_scale * (x_s_kp @ x_t_R + x_t_exp) + x_t_t
 
 
         ret_dct = self.warping_module(f_s, kp_source=x_s_full, kp_driving=x_d_full)
@@ -245,7 +227,7 @@ class LitAutoEncoder(L.LightningModule):
         output_result = self.spade_generator(feature=ret_dct['out'])
 
         l_recon = torch.nn.functional.mse_loss(output_result, target_img_512)
-        l_e = self.equivariance_loss(target_img, x_t_kp, self.motion_extractor)
+        l_e = self.equivariance_loss(target_img, x_d_full, x_s_kp, self.motion_extractor)
 
         l_prior = self.keypoint_prior_loss(x_d_full)
         l_deformation = self.deformation_prior_loss(x_t_exp)

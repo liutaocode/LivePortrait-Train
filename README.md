@@ -25,7 +25,7 @@ The image above shows a comparison between:
 - PyTorch Lightning Integration  
 - GAN Architecture (Single or Cascaded)
 - VGG-based Perceptual Loss (Cascaded)
-- Wing Loss (Integrated, under testing)
+- Wing Loss
 
 With these completed components, you can train a basic version of LivePortrait Stage 1.
 
@@ -78,7 +78,7 @@ python train.py \
     --every_n_epochs 1 \
     --recon_loss_weight 10.0 \
     --pretrained_mode 0 \
-    --gan_multi_scale_mode True \
+    --gan_multi_scale_mode False \ 
     --checkpoint_path "your_pretrained_ckpt_optional.ckpt" \
     --max_epochs 1000 \
     --debug_mode False \

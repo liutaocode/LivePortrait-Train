@@ -10,25 +10,7 @@ import numpy as np
 from src.datasets import prepare_source
 import os
 import argparse
-
-
-def process_kp(kp_info):
-    bs = kp_info['kp'].shape[0]
-    kp_info['pitch'] = headpose_pred_to_degree(kp_info['pitch'])[:, None]
-    kp_info['yaw'] = headpose_pred_to_degree(kp_info['yaw'])[:, None]
-    kp_info['roll'] = headpose_pred_to_degree(kp_info['roll'])[:, None]
-    kp_info['kp'] = kp_info['kp'].reshape(bs, -1, 3)
-    kp_info['exp'] = kp_info['exp'].reshape(bs, -1, 3)
-
-    kp = kp_info['kp']
-    scale = kp_info['scale'].unsqueeze(-1)
-    R = get_rotation_matrix(kp_info['pitch'], kp_info['yaw'], kp_info['roll'])
-    exp = kp_info['exp']
-    t = kp_info['t'].unsqueeze(1)
-
-    return kp, scale, R, exp, t
-
-
+from src.losses import process_kp, process_kp_original
 
 def inference(args, source_img_path, target_img_path, checkpoint_path=None):
 
@@ -36,8 +18,10 @@ def inference(args, source_img_path, target_img_path, checkpoint_path=None):
     model = LitAutoEncoder(args=args)
     model.to(device)
 
-    if checkpoint_path is not None:
-        # Load liveportrait checkpoint
+    livepotrait_mode = True if checkpoint_path is None else False
+
+    if not livepotrait_mode:
+        # Load your checkpoint
         checkpoint = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoint['state_dict'])
 
@@ -70,12 +54,18 @@ def inference(args, source_img_path, target_img_path, checkpoint_path=None):
         # Extract features from source image
         f_s = appearance_feature_extractor(source_img)
         x_s_info = motion_extractor(source_img)
-        x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp(x_s_info)
+        if livepotrait_mode:
+            x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp_original(x_s_info)
+        else:
+            x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp(x_s_info)
         x_s_full = x_s_scale * (x_s_kp @ x_s_R + x_s_exp) + x_s_t
 
         # Extract features from target image
         x_t_info = motion_extractor(target_img)
-        x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp(x_t_info)
+        if livepotrait_mode:
+            x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp_original(x_t_info)
+        else:
+            x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp(x_t_info)
         x_d_full = x_t_scale * (x_t_kp @ x_t_R + x_t_exp) + x_t_t
 
         # Warp features
