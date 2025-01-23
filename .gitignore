@@ -14,9 +14,6 @@ checkpoints/
 # Model weights
 **/*.pth
 **/*.onnx
-*.png
-*.jpg
-*.pkl
 
 pretrained_weights/*.md
 pretrained_weights/docs
@@ -41,3 +38,19 @@ LivePortrait_env/
 src/utils/dependencies/XPose/models/UniPose/ops/build
 src/utils/dependencies/XPose/models/UniPose/ops/dist
 src/utils/dependencies/XPose/models/UniPose/ops/MultiScaleDeformableAttention.egg-info
+src/utils/dependencies/insightface/
+src/utils/resources/
+
+# Training files
+examples/driving/*.pkl
+examples/driving/*_crop.mp4
+local_test
+exps/
+db_name_xxxx1/
+db_name_xxxx1.zip
+train.sh
+test.sh
+__pycache__
+
+# Outputs
+outputs/

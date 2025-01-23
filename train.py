@@ -34,32 +34,37 @@ class LitAutoEncoder(L.LightningModule):
         self.warping_module = WarpingNetwork(**model_config['model_params']['warping_module_params'])
         self.spade_generator = SPADEDecoder(**model_config['model_params']['spade_generator_params'])
 
-        self.dis_gan = self._init_gan_discriminator()
+        
         self.liveportrait_mode = self.args.pretrained_mode == 3
 
         self._load_pretrained_weights()
-        # losses
-        self.keypoint_prior_loss = KeypointPriorLoss()
-
-        self.deformation_prior_loss = DeformationPriorLoss()
-
-        self.equivariance_loss = EquivarianceLoss(
-            sigma_affine=0.05,
-            sigma_tps=0.005,
-            points_tps=5,
-            bin_mode=self.liveportrait_mode or self.args.num_bins != 1
-        )
-
-        self.headpose_loss = HeadPoseLoss()
 
         self.vgg_loss = VGGLoss()
 
-        self.wing_loss = WingLoss(omega=self.args.wing_loss_omega, epsilon=self.args.wing_loss_epsilon)
+        self.dis_gan = self._init_gan_discriminator()
 
-        self.num_of_selected_landmarks = len(self.args.landmark_selected_index)
-        print('self.num_of_selected_landmarks for wing loss', self.num_of_selected_landmarks)
+        if not self.args.inference_mode:
 
-        print(model_config)
+            # losses
+            self.keypoint_prior_loss = KeypointPriorLoss()
+
+            self.deformation_prior_loss = DeformationPriorLoss()
+
+            self.equivariance_loss = EquivarianceLoss(
+                sigma_affine=0.05,
+                sigma_tps=0.005,
+                points_tps=5,
+                bin_mode=self.liveportrait_mode or self.args.num_bins != 1
+            )
+
+            self.headpose_loss = HeadPoseLoss()
+
+            self.wing_loss = WingLoss(omega=self.args.wing_loss_omega, epsilon=self.args.wing_loss_epsilon)
+
+            self.num_of_selected_landmarks = len(self.args.landmark_selected_index)
+            print('self.num_of_selected_landmarks for wing loss', self.num_of_selected_landmarks)
+
+            print(model_config)
 
     def _init_gan_discriminator(self):
         if self.args.gan_multi_scale_mode:
@@ -234,7 +239,7 @@ class LitAutoEncoder(L.LightningModule):
         l_recon = F.mse_loss(output_result, target_img_512)
         self.log("recon_loss", l_recon, on_step=True, prog_bar=True)
 
-        l_e = self.equivariance_loss(target_img, x_d_full, x_s_kp, self.motion_extractor) # NOTE 这地方也改了
+        l_e = self.equivariance_loss(target_img, x_d_full, x_s_kp, self.motion_extractor)
 
         self.log("equivariance_loss", l_e, on_step=True, prog_bar=True)
 
@@ -400,6 +405,7 @@ if __name__ == "__main__":
     parser.add_argument("--gp_weight", type=float, default=10.0)
     parser.add_argument("--num_bins", type=int, default=66)
     parser.add_argument("--db_path_prefix", type=str, default="./assets/db_assert/")
+    parser.add_argument("--inference_mode", type=bool, default=False)
 
     args = parser.parse_args()
 

@@ -1,9 +1,0 @@
-examples/driving/*.pkl
-examples/driving/*_crop.mp4
-local_test
-exps/
-db_name_xxxx1/
-db_name_xxxx1.zip
-train.sh
-test.sh
-__pycache__

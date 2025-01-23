@@ -1,10 +1,5 @@
 import torch
 import cv2
-from src.modules.spade_generator import SPADEDecoder
-from src.modules.warping_network import WarpingNetwork
-from src.modules.motion_extractor import MotionExtractor
-from src.modules.appearance_feature_extractor import AppearanceFeatureExtractor
-from src.utils.camera import get_rotation_matrix, headpose_pred_to_degree
 from train import LitAutoEncoder
 import numpy as np
 from src.datasets import prepare_source
@@ -12,13 +7,11 @@ import os
 import argparse
 from src.losses import process_kp, process_kp_original
 
-def inference(args, source_img_path, target_img_path, checkpoint_path=None):
+def inference(args, source_img_path, target_img_path, checkpoint_path=None, livepotrait_mode=False):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = LitAutoEncoder(args=args)
     model.to(device)
-
-    livepotrait_mode = True if checkpoint_path is None else False
 
     if not livepotrait_mode:
         # Load your checkpoint
@@ -54,7 +47,7 @@ def inference(args, source_img_path, target_img_path, checkpoint_path=None):
         # Extract features from source image
         f_s = appearance_feature_extractor(source_img)
         x_s_info = motion_extractor(source_img)
-        if livepotrait_mode:
+        if args.num_bins != 1:
             x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp_original(x_s_info)
         else:
             x_s_kp, x_s_scale, x_s_R, x_s_exp, x_s_t = process_kp(x_s_info)
@@ -62,7 +55,7 @@ def inference(args, source_img_path, target_img_path, checkpoint_path=None):
 
         # Extract features from target image
         x_t_info = motion_extractor(target_img)
-        if livepotrait_mode:
+        if args.num_bins != 1:
             x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp_original(x_t_info)
         else:
             x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp(x_t_info)
@@ -92,10 +85,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    args.inference_mode = True
+    args.gan_multi_scale_mode = False
+    args.num_bins = 66
+
     os.makedirs(args.saved_to, exist_ok=True)
 
-    official_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=None)
-    pred_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=args.checkpoint_path)
+    official_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=None, livepotrait_mode=True)
+    pred_output_image = inference(args, args.source_img_path, args.target_img_path, checkpoint_path=args.checkpoint_path, livepotrait_mode=False)
 
     source_img_orig = cv2.imread(args.source_img_path)
     target_img_orig = cv2.imread(args.target_img_path)
