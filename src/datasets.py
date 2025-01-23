@@ -89,7 +89,7 @@ class CustomDataset(torch.utils.data.Dataset):
                  self.meta_lists.extend(self.meta_lists) # simulate the dataset
         print(f'Total count: {len(self.meta_lists)}')
 
-    # TODO： make sure the result is the same as the original dataset
+    # TODO： make sure the resolution here is the same as the original dataset
     def read_landmark_info(self, lmd_path, landmark_selected_index=None, pixel_scale=512):
         # print('landmark_selected_index', landmark_selected_index)
         with open(lmd_path, 'r') as file:
