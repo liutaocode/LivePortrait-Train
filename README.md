@@ -1,6 +1,7 @@
 # LivePortrait Training Implementation
 
 > An unofficial training implementation of LivePortrait. This is currently a basic version that is not fully implemented and may contain bugs. Please use with caution.
+> The progress of this repository depends on my spare time. Any contributions are welcome.
 
 ## Demo Results
 
@@ -55,7 +56,7 @@ Since the original LivePortrait paper did not disclose the specific 10 keypoints
 
 ## Usage
 
-The repository contains two main scripts:
+The repository contains three main scripts:
 
 ### `Train.py`
 Training script for Stage 1 implementation
@@ -94,22 +95,50 @@ python train.py \
 
 ```
 
-Important Parameters:
+Key Parameters:
 - `pretrained_mode`: 0 for training from scratch, 1 for resuming training, 2 for loading partial model, 3 for loading official liveportrait weights (for fine-tuning)
 
-### `test_img.py` (Image-Driven Image)
+### `test_img.py` (Image-to-Image Animation)
+
 Inference script that generates the following output sequence:
 1. Source image
 2. Driving image  
 3. Official LivePortrait model output
 4. Your trained model output
 
+```
+python test_vid.py \
+    --source_img_path "./assets/examples/driving/d19.jpg" \
+    --target_video_path "./assets/examples/driving/d3.mp4" \
+    --checkpoint_path "your_pretrained_ckpt.ckpt" \
+    --saved_to "./outputs/predictions_imgs/"
 
-### `test_vid.py` (Image-Driven Video)
+```
+
+### `test_vid.py` (Image-to-Video Animation)
+
+Inference script that generates the following output sequence:
+1. Source image
+2. Driving Video  
+3. Official LivePortrait model output
+4. Your trained model output
+
+```
+python test_vid.py \
+    --source_img_path "./assets/examples/driving/d19.jpg" \
+    --target_video_path "./assets/examples/driving/d3.mp4" \
+    --checkpoint_path "your_pretrained_ckpt.ckpt" \
+    --saved_to "./outputs/predictions_vids/"
+```
+
+## Model Zoo
 
 > Note: Due to certain constraints, pre-trained models are not available for release at this time.
 
-> The progress of this repository depends on my spare time. Any contributions are welcome.
+
+## 🙏 Special Thanks 
+
+[azuredsky](https://github.com/azuredsky)
 
 ## References 
 - [Official LivePortrait Repository](https://github.com/KwaiVGI/LivePortrait)

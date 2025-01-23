@@ -10,6 +10,12 @@ from src.losses import process_kp, process_kp_original
 def inference(args, source_img_path, target_img_path, checkpoint_path=None, livepotrait_mode=False):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    if livepotrait_mode:
+        args.pretrained_mode = 3
+    else:
+        args.pretrained_mode = 0
+
     model = LitAutoEncoder(args=args)
     model.to(device)
 
@@ -77,17 +83,15 @@ def inference(args, source_img_path, target_img_path, checkpoint_path=None, live
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained_mode", type=int, default=3, help="do not change this")
     parser.add_argument("--source_img_path", type=str, default="./assets/examples/driving/d19.jpg")
     parser.add_argument("--target_img_path", type=str, default="./assets/examples/driving/d12.jpg")
     parser.add_argument("--checkpoint_path", type=str, default="./checkpoints/your_trained_model.ckpt")
     parser.add_argument("--saved_to", type=str, default="./outputs/predictions/")
+    parser.add_argument("--num_bins", type=int, default=66)
+    parser.add_argument("--gan_multi_scale_mode", type=bool, default=False)
 
     args = parser.parse_args()
-
     args.inference_mode = True
-    args.gan_multi_scale_mode = False
-    args.num_bins = 66
 
     os.makedirs(args.saved_to, exist_ok=True)
 

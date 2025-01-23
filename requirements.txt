@@ -5,3 +5,4 @@ transformers==4.38.0
 lightning==2.5.0
 wandb==0.19.1
 tensorboard==2.18.0
+moviepy==1.0.3
