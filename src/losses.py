@@ -91,6 +91,7 @@ def make_coordinate_grid_2d(shape):
     meshed = torch.cat([xx.unsqueeze_(2), yy.unsqueeze_(2)], 2)
     return meshed
 
+# https://github.com/zhengkw18/face-vid2vid/blob/ee28aa89918db67355fd8e7af567dadcf86d5a78/trainer.py#L87
 class Transform:
     """Random TPS transformation for equivariance constraints."""
     def __init__(self, bs, sigma_affine=0.05, sigma_tps=0.005, points_tps=5):
@@ -131,6 +132,7 @@ class Transform:
 
         return transformed
 
+# not used
 class FeatureMatchingLoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -146,16 +148,19 @@ class FeatureMatchingLoss(nn.Module):
                 loss += dis_weight * tmp_loss
         return loss
 
+# I think original EquivarianceLoss is not correct
+# So I modified here to match KP(T(x))≈T(KP(x))
 
 class EquivarianceLoss(nn.Module):
     """Enhanced Equivariance loss for keypoint detection"""
-    def __init__(self, sigma_affine=0.05, sigma_tps=0.005, points_tps=5):
+    def __init__(self, sigma_affine=0.05, sigma_tps=0.005, points_tps=5, bin_mode=False):
         super().__init__()
         self.sigma_affine = sigma_affine
         self.sigma_tps = sigma_tps
         self.points_tps = points_tps
-
-    def forward(self, x_t_256, x_t_full, x_s_kp, motion_extractor):
+        self.criterion = nn.MSELoss()
+        self.bin_mode = bin_mode
+    def forward(self, x_t_256, x_t_full, x_s_kp, motion_extractor, debug_mode=False):
         """
         Args:
             x_s_256: Source image [B, C, H, W]
@@ -174,33 +179,43 @@ class EquivarianceLoss(nn.Module):
         original_kp = x_t_full.reshape(batch_size, -1, 3)  # BxNx3
 
         # 3. Apply transformation to image
+        # normalized_frame = x_t_256 * 2 - 1
         transformed_image = transform.transform_frame(x_t_256)
+        # normalized_image = transformed_image * 0.5 + 0.5
 
-        # uncomment the following code if you want to save transformed image
-        # # Save transformed image as PNG
-        # # Convert from tensor [B,C,H,W] to numpy [H,W,C]
-        # img_np = transformed_image[0].detach().cpu().numpy()  # Take first image from batch
-        # img_np = np.transpose(img_np, (1,2,0))  # CHW -> HWC
-        # img_np = (img_np * 255).astype(np.uint8)  # Scale from [0,1] to [0,255]
-        # img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)  # RGB -> BGR for cv2
-        # i = 1
-        # while os.path.exists(f'assets/tps/{i}.png'):
-        #     i += 1
-        # os.makedirs('assets/tps', exist_ok=True)
-        # cv2.imwrite(f'assets/tps/{i}.png', img_np)
+        if debug_mode:
+
+            # set debug_mode=True if you want to take a look at transformed image
+            # Save transformed image as PNG
+            # Convert from tensor [B,C,H,W] to numpy [H,W,C]
+            import os
+            import numpy as np
+            import cv2
+            img_np = transformed_image[0].detach().cpu().numpy()  # Only take first image from batch
+            img_np = np.transpose(img_np, (1,2,0))  # CHW -> HWC
+            img_np = (img_np * 255).astype(np.uint8)  # Scale from [0,1] to [0,255]
+            img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)  # RGB -> BGR for cv2
+            i = 1
+            while os.path.exists(f'assets/tps/{i}.png'):
+                i += 1
+            os.makedirs('assets/tps', exist_ok=True)
+            cv2.imwrite(f'assets/tps/{i}.png', img_np)
 
         # 4. Extract keypoints from transformed image
         transformed_info = motion_extractor(transformed_image)
         # transformed_kp_info = transformed_info['kp'].reshape(batch_size, -1, 3)  # BxNx3
-        _, x_transformed_scale, x_transformed_R, x_transformed_exp, x_transformed_t = process_kp(transformed_info)
+        if self.bin_mode:
+            _, x_transformed_scale, x_transformed_R, x_transformed_exp, x_transformed_t = process_kp_original(transformed_info)
+        else:
+            _, x_transformed_scale, x_transformed_R, x_transformed_exp, x_transformed_t = process_kp(transformed_info)
 
         x_transformed_full = x_transformed_scale * (x_s_kp @ x_transformed_R + x_transformed_exp) + x_transformed_t
 
         # 5. Apply inverse transformation to transformed keypoints
-        reverse_transformed_full = transform.warp_coordinates(x_transformed_full[..., :2])  # Only transform x,y coordinates
+        reverse_transformed_full = transform.warp_coordinates(original_kp[..., :2])  # NOTE I modified this line to match KP(T(x))≈T(KP(x))
 
         # 6. Calculate loss between original and reverse-transformed keypoints
-        loss = torch.mean((original_kp[..., :2] - reverse_transformed_full) ** 2)
+        loss = self.criterion(x_transformed_full[..., :2], reverse_transformed_full)
 
         return loss
 
@@ -223,18 +238,13 @@ class KeypointPriorLoss(nn.Module):
 class HeadPoseLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.criterion = nn.MSELoss()  # nn.L1Loss()
+        self.criterion = nn.L1Loss()
 
     def forward(self, yaw, pitch, roll, real_yaw, real_pitch, real_roll):
         # Normalize inputs by dividing by 90 degrees
-        yaw = yaw / 90.0
-        pitch = pitch / 90.0
-        roll = roll / 90.0
-        real_yaw = real_yaw / 90.0
-        real_pitch = real_pitch / 90.0
-        real_roll = real_roll / 90.0
+        # yaw, pitch, roll, real_yaw, real_pitch, real_roll = yaw / 90.0, pitch / 90.0, roll / 90.0, real_yaw / 90.0, real_pitch / 90.0, real_roll / 90.0
 
-        loss = (self.criterion(yaw, real_yaw.detach()) + self.criterion(pitch, real_pitch.detach()) + self.criterion(roll, real_roll.detach())) / 3
+        loss = (self.criterion(yaw, real_yaw) + self.criterion(pitch, real_pitch) + self.criterion(roll, real_roll)) / 3
         return loss
 
 
@@ -246,7 +256,7 @@ class DeformationPriorLoss(nn.Module):
         loss = delta_d.abs().mean()
         return loss
 
-# Original WingLoss
+# Original WingLoss for reference
 # class WingLoss(nn.Module):
 #     def __init__(self, omega=10, epsilon=2):
 #         super(WingLoss, self).__init__()
@@ -264,7 +274,7 @@ class DeformationPriorLoss(nn.Module):
 #         loss2 = delta_y2 - C
 #         return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
 
-# Modified WingLoss
+# Modified WingLoss (after code refinement)
 class WingLoss(nn.Module):
     def __init__(self, omega=10, epsilon=2):
         super(WingLoss, self).__init__()

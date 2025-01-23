@@ -3,7 +3,6 @@ import numpy as np
 import cv2
 import os
 from tqdm import tqdm
-import pickle
 
 def prepare_source(img: np.ndarray) -> torch.Tensor:
     """ construct the input as standard
@@ -22,69 +21,72 @@ def prepare_source(img: np.ndarray) -> torch.Tensor:
     x = torch.from_numpy(x).permute(2, 0, 1)  # HxWx3 -> 3xHxW
     return x
 
+# dataset is not fully implemented here
+# TODO: implement the dataset by following your own format
 class CustomDataset(torch.utils.data.Dataset):
-    def __init__(self, val_mode=False, debug_mode=False, cache_dir=None, db_path_prefix=None, landmark_selected_index=None):
-        os.makedirs(cache_dir, exist_ok=True)
+    def __init__(self, val_mode=False, db_path_prefix=None, landmark_selected_index=None):
+
+        assert db_path_prefix is not None, "db_path_prefix is required"
+        assert landmark_selected_index is not None, "landmark_selected_index is required"
+        assert os.path.exists(db_path_prefix), "db_path_prefix does not exist. We suggest you can follow https://github.com/liutaocode/talking_face_preprocessing"
 
         self.val_mode = val_mode
-        self.debug_mode = debug_mode
         self.landmark_selected_index = landmark_selected_index
-        frames_dir = os.path.join(db_path_prefix, 'raw_cropped_frames_jpgs')
-        landmark_dir = os.path.join(db_path_prefix, 'landmarks')
-        face_orientation_dir = os.path.join(db_path_prefix, 'face_orientation')
-
+        
         self.meta_lists = []
-        for db_name in os.listdir(frames_dir):
+        for db_name in os.listdir(db_path_prefix):
+
+            frames_dir = os.path.join(db_path_prefix, db_name, 'raw_cropped_frames')
+            assert os.path.exists(frames_dir), "frames_dir does not exist. please check the db_path_prefix."
+            landmark_dir = os.path.join(db_path_prefix, db_name, 'landmarks')
+            assert os.path.exists(landmark_dir), "landmark_dir does not exist. please check the db_path_prefix."
+            face_orientation_dir = os.path.join(db_path_prefix, db_name, 'face_orientation')
+            assert os.path.exists(face_orientation_dir), "face_orientation_dir does not exist. please check the db_path_prefix."
+
 
             if val_mode:
-                if db_name not in ['test_db_name',]:
+                if db_name not in ['db_name_xxxx1',]:
                     continue
             else:
-                if db_name not in ['VoxCeleb2', 'VFHQ']:
+                if db_name not in ['db_name_xxxx1',]:
                     continue
 
-            if val_mode:
-                current_db_cache_dir = os.path.join(cache_dir, db_name+f"_val.pkl")
-            else:
-                current_db_cache_dir = os.path.join(cache_dir, db_name+f"_train.pkl")
+      
+            current_db_meta_lists = []
+            for clip_name in tqdm(os.listdir(frames_dir), desc='Loading clips'):
 
-            if os.path.exists(current_db_cache_dir):
-                self.meta_lists.extend(pickle.load(open(current_db_cache_dir, 'rb')))
-                print(f"Loaded {current_db_cache_dir}")
-                continue
-
-            else:
-                current_db_meta_lists = []
-                for clip_name in tqdm(os.listdir(os.path.join(frames_dir, db_name)), desc='Loading clips'):
-
-                    clip_frames_dir = os.path.join(frames_dir, db_name, clip_name)
-                    clip_landmarks_dir = os.path.join(landmark_dir, db_name, clip_name+'.txt')
-                    clip_face_orientation_dir = os.path.join(face_orientation_dir, db_name, clip_name+'.npy')
+                clip_frames_dir = os.path.join(frames_dir, clip_name)
+                clip_landmarks_dir = os.path.join(landmark_dir, clip_name+'.txt')
+                clip_face_orientation_dir = os.path.join(face_orientation_dir, clip_name+'.npy')
 
 
-                    frame_len = len(os.listdir(clip_frames_dir))
-                    landmark_len = len(open(clip_landmarks_dir, 'r').readlines())
+                frame_len = len(os.listdir(clip_frames_dir))
+                landmark_len = len(open(clip_landmarks_dir, 'r').readlines())
 
-                    yaw_pitch_roll = np.load(clip_face_orientation_dir).astype(np.float32)
-                    yaw_pitch_roll = np.clip(yaw_pitch_roll, -90, 90)
-                    ypr_len = yaw_pitch_roll.shape[0]
+                yaw_pitch_roll = np.load(clip_face_orientation_dir).astype(np.float32)
+                yaw_pitch_roll = np.clip(yaw_pitch_roll, -90, 90)
+                ypr_len = yaw_pitch_roll.shape[0]
 
-                    min_len = min(frame_len, landmark_len, ypr_len)
-                    lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=self.landmark_selected_index)
+                min_len = min(frame_len, landmark_len, ypr_len)
+                lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=self.landmark_selected_index)
 
-                    current_db_meta_lists.append({
-                        'db_name': db_name,
-                        'clip_frames_dir': clip_frames_dir,
-                        'clip_name': clip_name,
-                        'lmd_obj': lmd_obj,
-                        'yaw_pitch_roll': yaw_pitch_roll,
-                        'min_len': min_len,
-                    })
+                current_db_meta_lists.append({
+                    'db_name': db_name,
+                    'clip_frames_dir': clip_frames_dir,
+                    'clip_name': clip_name,
+                    'lmd_obj': lmd_obj,
+                    'yaw_pitch_roll': yaw_pitch_roll,
+                    'min_len': min_len,
+                })
 
-                self.meta_lists.extend(current_db_meta_lists)
-                pickle.dump(current_db_meta_lists, open(current_db_cache_dir, 'wb'))
-                print(f"Saved {current_db_cache_dir}")
+            self.meta_lists.extend(current_db_meta_lists)
 
+        assert len(self.meta_lists) > 0, "No clips found in the dataset."
+
+        #TODO you must delete this code after you have implemented the dataset
+        if len(self.meta_lists) == 1:
+             for _ in range(20):
+                 self.meta_lists.extend(self.meta_lists) # simulate the dataset
         print(f'Total count: {len(self.meta_lists)}')
 
 
@@ -160,5 +162,7 @@ class CustomDataset(torch.utils.data.Dataset):
             'target_img': target_img,
             'target_img_512': target_img_512,
             'target_ypr': yaw_pitch_roll[target_idx],
+            'source_ypr': yaw_pitch_roll[source_idx],
             'target_lmd': lmd_obj[target_idx],
+            'source_lmd': lmd_obj[source_idx],
         }

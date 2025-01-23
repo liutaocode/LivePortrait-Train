@@ -60,15 +60,16 @@ The repository contains two main scripts:
 ### `Train.py`
 Training script for Stage 1 implementation
 
+Run on Single 3090 GPU (24GB):
+
 ```
 python train.py \
-    --batch_size 8 \
-    --val_batch_size 4 \
+    --batch_size 4 \
+    --val_batch_size 2 \
     --lr_g 1e-4 \
     --lr_d 1e-4 \
     --exp_name "exp_name" \
     --exp_dir "./exps/exp_name/" \
-    --cache_dir "./assets/db_cache/" \
     --vgg_loss_weight 1.0 \
     --gan_loss_weight 0.1 \
     --prior_loss_weight 1.0 \
@@ -78,33 +79,42 @@ python train.py \
     --every_n_epochs 1 \
     --recon_loss_weight 10.0 \
     --pretrained_mode 0 \
-    --gan_multi_scale_mode False \ 
+    --gan_multi_scale_mode False \
     --checkpoint_path "your_pretrained_ckpt_optional.ckpt" \
     --max_epochs 1000 \
-    --debug_mode False \
-    --wandb_mode True \
+    --wandb_mode False \
     --clip_grad_norm 1.0 \
     --wing_loss_omega 0.1 \
     --wing_loss_epsilon 0.01 \
     --landmark_selected_index "36,39,37,42,45,43,48,54,51,57" \
     --use_gradient_penalty True \
-    --gp_weight 10.0
+    --gp_weight 10.0 \
+    --num_bins 66 \
+    --db_path_prefix "./assets/db_path/"
 
 ```
 
-### `Test.py` 
+Important Parameters:
+- `pretrained_mode`: 0 for training from scratch, 1 for resuming training, 2 for loading partial model, 3 for loading official liveportrait weights (for fine-tuning)
+
+### `test_img.py` (Image-Driven Image)
 Inference script that generates the following output sequence:
 1. Source image
 2. Driving image  
 3. Official LivePortrait model output
 4. Your trained model output
 
+
+### `test_vid.py` (Image-Driven Video)
+
 > Note: Due to certain constraints, pre-trained models are not available for release at this time.
 
 > The progress of this repository depends on my spare time. Any contributions are welcome.
 
-## References
+## References 
 - [Official LivePortrait Repository](https://github.com/KwaiVGI/LivePortrait)
 - [Face-vid2vid](https://github.com/zhengkw18/face-vid2vid)
 - [LIA](https://github.com/wyhsirius/LIA)
 - [Wing Loss](https://github.com/elliottzheng/AdaptiveWingLoss/blob/master/wing_loss.py)
+
+
