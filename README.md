@@ -65,7 +65,6 @@ conda create -n LivePortrait_Train python=3.10
 conda activate LivePortrait_Train
 pip install torch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
-
 ```
 
 Details of the environment setup can be found in the [LivePortrait](https://github.com/KwaiVGI/LivePortrait) repository.
@@ -107,7 +106,6 @@ python train.py \
     --gp_weight 10.0 \
     --num_bins 66 \
     --db_path_prefix "./assets/db_path/"
-
 ```
 
 Key Parameters:
@@ -134,7 +132,6 @@ python test_vid.py \
     --target_video_path "./assets/examples/driving/d3.mp4" \
     --checkpoint_path "your_pretrained_ckpt.ckpt" \
     --saved_to "./outputs/predictions_imgs/"
-
 ```
 
 ### `test_vid.py` (Image-to-Video Animation)
