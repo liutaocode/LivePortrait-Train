@@ -97,6 +97,13 @@ python train.py \
 
 Key Parameters:
 - `pretrained_mode`: 0 for training from scratch, 1 for resuming training, 2 for loading partial model, 3 for loading official liveportrait weights (for fine-tuning)
+- [Optional] If you want to fine-tune the pretrained model or compare with the official LivePortrait model, download pretrained models to `pretrained_weights` folder following the instructions below:
+
+```
+# !pip install -U "huggingface_hub[cli]"
+huggingface-cli download KwaiVGI/LivePortrait --local-dir pretrained_weights --exclude "*.git*" "README.md" "docs"
+```
+
 
 ### `test_img.py` (Image-to-Image Animation)
 
