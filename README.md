@@ -162,6 +162,8 @@ python test_vid.py \
 
 [azuredsky](https://github.com/azuredsky)
 
+[tanshuai0219](https://github.com/tanshuai0219)
+
 ## References 
 - [LivePortrait](https://github.com/KwaiVGI/LivePortrait)
 - [Face-vid2vid](https://github.com/zhengkw18/face-vid2vid)
