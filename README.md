@@ -127,9 +127,9 @@ Inference script that generates the following output sequence:
 4. Your trained model output
 
 ```
-python test_vid.py \
+python test_img.py \
     --source_img_path "./assets/examples/driving/d19.jpg" \
-    --target_video_path "./assets/examples/driving/d3.mp4" \
+    --target_img_path "./assets/examples/driving/d12.jpg" \
     --checkpoint_path "your_pretrained_ckpt.ckpt" \
     --saved_to "./outputs/predictions_imgs/"
 ```
@@ -147,7 +147,7 @@ python test_vid.py \
     --source_img_path "./assets/examples/driving/d19.jpg" \
     --target_video_path "./assets/examples/driving/d3.mp4" \
     --checkpoint_path "your_pretrained_ckpt.ckpt" \
-    --saved_to "./outputs/predictions_vids/"
+    --saved_to "./outputs/predictions_vids"
 ```
 
 ## Model Zoo
