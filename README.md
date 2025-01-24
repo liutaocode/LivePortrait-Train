@@ -56,6 +56,21 @@ Since the original LivePortrait paper did not disclose the specific 10 keypoints
 
 ## Usage
 
+### Prerequisites
+
+```
+git clone https://github.com/liutaocode/LivePortrait-Train
+cd LivePortrait-Train
+conda create -n LivePortrait_Train python=3.10
+conda activate LivePortrait_Train
+
+pip install -r requirements.txt
+
+```
+
+Details of the environment setup can be found in the [LivePortrait](https://github.com/KwaiVGI/LivePortrait) repository.
+
+
 The repository contains three main scripts:
 
 ### `Train.py`
@@ -148,7 +163,7 @@ python test_vid.py \
 [azuredsky](https://github.com/azuredsky)
 
 ## References 
-- [Official LivePortrait Repository](https://github.com/KwaiVGI/LivePortrait)
+- [LivePortrait](https://github.com/KwaiVGI/LivePortrait)
 - [Face-vid2vid](https://github.com/zhengkw18/face-vid2vid)
 - [LIA](https://github.com/wyhsirius/LIA)
 - [Wing Loss](https://github.com/elliottzheng/AdaptiveWingLoss/blob/master/wing_loss.py)
