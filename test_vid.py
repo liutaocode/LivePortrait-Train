@@ -224,11 +224,13 @@ if __name__ == "__main__":
     parser.add_argument("--target_video_path", type=str, default="./assets/examples/video/video_example.mp4")
     parser.add_argument("--checkpoint_path", type=str, default="./checkpoints/your_trained_model.ckpt")
     parser.add_argument("--saved_to", type=str, default="./outputs/predictions/")
-    parser.add_argument("--num_bins", type=int, default=66, required=False)
-    parser.add_argument("--gan_multi_scale_mode", type=bool, default=False, required=False)
 
     args = parser.parse_args()
     args.inference_mode = True
+    
+    # TODO Put your own modified parameters here or load from your training parameters.
+    args.num_bins = 66
+    args.gan_multi_scale_mode = False
 
     process_video(
         args,
