@@ -78,7 +78,7 @@ def inference(model, source_img, target_img, args):
             x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp_original(x_t_info)
         else:
             x_t_kp, x_t_scale, x_t_R, x_t_exp, x_t_t = process_kp(x_t_info)
-        x_d_full = x_t_scale * (x_t_kp @ x_t_R) + x_t_t
+        x_d_full = x_t_scale * (x_t_kp @ x_t_R + x_t_exp) + x_t_t
 
         # Warp the source features according to the target keypoints
         ret_dct = warping_module(f_s, kp_source=x_s_full, kp_driving=x_d_full)
