@@ -148,9 +148,7 @@ class FeatureMatchingLoss(nn.Module):
                 loss += dis_weight * tmp_loss
         return loss
 
-# I think original EquivarianceLoss is not correct
-# So I modified here to match KP(T(x))≈T(KP(x))
-
+# Rollback code
 class EquivarianceLoss(nn.Module):
     """Enhanced Equivariance loss for keypoint detection"""
     def __init__(self, sigma_affine=0.05, sigma_tps=0.005, points_tps=5, bin_mode=False):
@@ -158,8 +156,9 @@ class EquivarianceLoss(nn.Module):
         self.sigma_affine = sigma_affine
         self.sigma_tps = sigma_tps
         self.points_tps = points_tps
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
         self.bin_mode = bin_mode
+
     def forward(self, x_t_256, x_t_full, x_s_kp, motion_extractor, debug_mode=False):
         """
         Args:
@@ -176,7 +175,7 @@ class EquivarianceLoss(nn.Module):
 
         # 2. Extract keypoints from original image
         # x_s_info = motion_extractor(x_s_256)
-        original_kp = x_t_full.reshape(batch_size, -1, 3)  # BxNx3
+        original_kp = x_t_full.reshape(batch_size, -1, 3)[..., :2]  # BxNx2
 
         # 3. Apply transformation to image
         # normalized_frame = x_t_256 * 2 - 1
@@ -212,10 +211,10 @@ class EquivarianceLoss(nn.Module):
         x_transformed_full = x_transformed_scale * (x_s_kp @ x_transformed_R + x_transformed_exp) + x_transformed_t
 
         # 5. Apply inverse transformation to transformed keypoints
-        reverse_transformed_full = transform.warp_coordinates(original_kp[..., :2])  # NOTE I modified this line to match KP(T(x))≈T(KP(x))
+        reverse_transformed_full = transform.warp_coordinates(x_transformed_full[..., :2])
 
         # 6. Calculate loss between original and reverse-transformed keypoints
-        loss = self.criterion(x_transformed_full[..., :2], reverse_transformed_full)
+        loss = self.criterion(original_kp, reverse_transformed_full)
 
         return loss
 
