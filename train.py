@@ -114,8 +114,7 @@ class LitAutoEncoder(L.LightningModule):
         if os.path.exists(checkpoint_paths['F']):
             self.appearance_feature_extractor.load_state_dict(torch.load(checkpoint_paths['F']))
         else:
-            print(f"Checkpoint {checkpoint_paths['F']} does not exist.")
-
+            assert os.path.exists(checkpoint_paths['F']), f"Checkpoint {checkpoint_paths['F']} does not exist. Please follow README to download the model."
         if os.path.exists(checkpoint_paths['M']):
             self.motion_extractor.load_state_dict(torch.load(checkpoint_paths['M']))
         else:
