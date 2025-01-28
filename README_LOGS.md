@@ -1,8 +1,6 @@
 # Change Logs
 
-## Bug Solving History
-- Fix Wing Loss normalization bugs (Enhance gaze direction modeling and mouth clarity)
-- Fix Equivariance bug (Resolve Expression collapse issue)
-
-## Current Integrated but Untested Features
-- `multi_scale_mode` may have severe GAN mode collision. Disable it for if you encounter any issues.
+## Bug Fixing & Improvements
+- Fixed Wing Loss normalization to improve gaze direction modeling and enhance mouth region clarity
+- Resolved Expression collapse issue by fixing Equivariance implementation
+- Optimized GAN architecture by transitioning from multi-scale to single-scale with focused lip/eye masking

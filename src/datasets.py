@@ -4,22 +4,100 @@ import cv2
 import os
 from tqdm import tqdm
 
-def prepare_source(img: np.ndarray) -> torch.Tensor:
-    """ construct the input as standard
-    img: HxWx3, uint8, 256x256
-    """
-    h, w = img.shape[:2]
-    x = img.copy()
 
-    if x.ndim == 3:
-        x = x.astype(np.float32) / 255.  # HxWx3, normalized to 0~1
-    elif x.ndim == 4:
-        x = x.astype(np.float32) / 255.  # BxHxWx3, normalized to 0~1
-    else:
-        raise ValueError(f'img ndim should be 3 or 4: {x.ndim}')
-    x = np.clip(x, 0, 1)  # clip to 0~1
+def prepare_source(img: np.ndarray) -> torch.Tensor:
+    """
+    Convert input uint8 image in [0..255] to a torch.Tensor in [0..1], shape [C,H,W].
+    """
+    x = img.astype(np.float32) / 255.0  # normalize to [0,1]
+    x = np.clip(x, 0, 1)
     x = torch.from_numpy(x).permute(2, 0, 1)  # HxWx3 -> 3xHxW
     return x
+
+
+def create_eye_mouth_mask(
+    landmarks_68: np.ndarray,
+    image_size: int = 512,
+    # For eyes (optional erosion + dilation)
+    eye_erosion_iters: int = 1,
+    eye_dilate_iters: int = 1,
+    # For mouth
+    mouth_dilate_iters: int = 2
+    ) -> (np.ndarray, np.ndarray):
+    """
+    Create binary masks for eyes and mouth based on 68 facial landmarks.
+    - Eyes: We use the typical 68-landmark indices for left/right eyes,
+            fill them with fillConvexPoly. Then optional erosion/dilation.
+    - Mouth: We ONLY use outer lip indices [48..59], ignore the inner ring [60..67].
+             Then we compute a convex hull to ensure a smooth boundary (no inward spikes),
+             fill that hull, and do morphological dilation to expand the region.
+
+    Args:
+        landmarks_68 (np.ndarray): shape (68,2), each row is (x_norm, y_norm) in [0,1].
+        image_size (int): final mask size (width=height=image_size).
+        eye_erosion_iters (int): how many times to erode eye region before dilate.
+        eye_dilate_iters (int): how many times to dilate eye region.
+        mouth_dilate_iters (int): how many times to dilate mouth region.
+                                  (We skip erosion for mouth in this example.)
+    Returns:
+        eye_mask  (np.ndarray): shape (image_size, image_size, 1), float32 in [0,1].
+        mouth_mask(np.ndarray): shape (image_size, image_size, 1), float32 in [0,1].
+    """
+    # Initialize empty masks
+    eye_mask = np.zeros((image_size, image_size), dtype=np.uint8)
+    mouth_mask = np.zeros((image_size, image_size), dtype=np.uint8)
+
+    # Indices for left/right eye in 68-landmarks
+    left_eye_idx = [36, 37, 38, 39, 40, 41]
+    right_eye_idx = [42, 43, 44, 45, 46, 47]
+
+    # Outer lips only: [48..59], ignoring [60..67] (inner lips)
+    outer_mouth_idx = list(range(48, 60))
+
+    # Convert normalized coords -> pixel coords
+    def to_px_coords(idx_list):
+        return [
+            (int(landmarks_68[i, 0] * image_size),
+             int(landmarks_68[i, 1] * image_size))
+            for i in idx_list
+        ]
+
+    left_eye_pts = to_px_coords(left_eye_idx)
+    right_eye_pts = to_px_coords(right_eye_idx)
+    mouth_pts = to_px_coords(outer_mouth_idx)
+
+    def fill_polygon(mask, pts):
+        pts_array = np.array(pts, dtype=np.int32)
+        cv2.fillConvexPoly(mask, pts_array, 255)
+
+    # Fill left eye / right eye
+    fill_polygon(eye_mask, left_eye_pts)
+    fill_polygon(eye_mask, right_eye_pts)
+
+    # Mouth: use convex hull on outer-lip points => no inward spikes
+    mouth_pts_array = np.array(mouth_pts, dtype=np.int32)
+    mouth_hull = cv2.convexHull(mouth_pts_array)
+    cv2.fillConvexPoly(mouth_mask, mouth_hull, 255)
+
+    # Morphological ops
+    kernel= np.ones((7, 7), dtype=np.uint8)
+
+    # Eye region: optional erosion then dilation
+    if eye_erosion_iters > 0:
+        eye_mask = cv2.erode(eye_mask, kernel, iterations=eye_erosion_iters)
+    if eye_dilate_iters > 0:
+        eye_mask = cv2.dilate(eye_mask, kernel, iterations=eye_dilate_iters)
+
+    # Mouth region: skip erosion, do dilation to expand outward
+    # (use a slightly bigger kernel / iteration for 512 resolution)
+    if mouth_dilate_iters > 0:
+        mouth_mask = cv2.dilate(mouth_mask, kernel, iterations=mouth_dilate_iters)
+
+    # Convert to float32 binary in [0,1], shape (H,W,1)
+    eye_mask = (eye_mask > 0).astype(np.float32)[..., None]
+    mouth_mask = (mouth_mask > 0).astype(np.float32)[..., None]
+
+    return eye_mask, mouth_mask
 
 # dataset is not fully implemented here
 # TODO: implement the dataset by following your own format
@@ -36,7 +114,11 @@ class CustomDataset(torch.utils.data.Dataset):
         self.meta_lists = []
         for db_name in os.listdir(db_path_prefix):
 
+            if not os.path.isdir(os.path.join(db_path_prefix, db_name)):
+                continue
+
             frames_dir = os.path.join(db_path_prefix, db_name, 'raw_cropped_frames')
+            print('frames_dir', frames_dir)
             assert os.path.exists(frames_dir), "frames_dir does not exist. please check the db_path_prefix."
             landmark_dir = os.path.join(db_path_prefix, db_name, 'landmarks')
             assert os.path.exists(landmark_dir), "landmark_dir does not exist. please check the db_path_prefix."
@@ -68,13 +150,15 @@ class CustomDataset(torch.utils.data.Dataset):
                 ypr_len = yaw_pitch_roll.shape[0]
 
                 min_len = min(frame_len, landmark_len, ypr_len)
-                lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=self.landmark_selected_index)
+                selected_lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=self.landmark_selected_index)
+                all_lmd_obj = self.read_landmark_info(clip_landmarks_dir, landmark_selected_index=None)
 
                 current_db_meta_lists.append({
                     'db_name': db_name,
                     'clip_frames_dir': clip_frames_dir,
                     'clip_name': clip_name,
-                    'lmd_obj': lmd_obj,
+                    'selected_lmd_obj': selected_lmd_obj,
+                    'all_lmd_obj': all_lmd_obj,
                     'yaw_pitch_roll': yaw_pitch_roll,
                     'min_len': min_len,
                 })
@@ -124,7 +208,8 @@ class CustomDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
 
         clip_frames_dir = self.meta_lists[idx]['clip_frames_dir']
-        lmd_obj = self.meta_lists[idx]['lmd_obj']
+        selected_lmd_obj = self.meta_lists[idx]['selected_lmd_obj']
+        all_lmd_obj = self.meta_lists[idx]['all_lmd_obj']
         yaw_pitch_roll = self.meta_lists[idx]['yaw_pitch_roll']
         min_len = self.meta_lists[idx]['min_len']
 
@@ -156,6 +241,11 @@ class CustomDataset(torch.utils.data.Dataset):
         target_img = prepare_source(target_img_256)
         target_img_512 = prepare_source(target_img_512)
 
+        target_eye_mask, target_mouth_mask = create_eye_mouth_mask(
+            all_lmd_obj[target_idx], image_size=512,
+            eye_erosion_iters=1, eye_dilate_iters=5,
+            mouth_dilate_iters=5
+        )
 
         return {
             'source_img': source_img,
@@ -163,6 +253,8 @@ class CustomDataset(torch.utils.data.Dataset):
             'target_img_512': target_img_512,
             'target_ypr': yaw_pitch_roll[target_idx],
             'source_ypr': yaw_pitch_roll[source_idx],
-            'target_lmd': lmd_obj[target_idx],
-            'source_lmd': lmd_obj[source_idx],
+            'target_lmd': selected_lmd_obj[target_idx],
+            'source_lmd': selected_lmd_obj[source_idx],
+            'target_eye_mask': target_eye_mask,
+            'target_mouth_mask': target_mouth_mask,
         }

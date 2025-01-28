@@ -79,7 +79,7 @@ Run on Single 3090 GPU (24GB):
 
 ```
 python train.py \
-    --batch_size 4 \
+    --batch_size 2 \
     --val_batch_size 2 \
     --lr_g 1e-4 \
     --lr_d 1e-4 \
@@ -94,15 +94,15 @@ python train.py \
     --every_n_epochs 1 \
     --recon_loss_weight 10.0 \
     --pretrained_mode 0 \
-    --gan_multi_scale_mode False \
+    --gan_multi_scale_mode true \
     --checkpoint_path "your_pretrained_ckpt_optional.ckpt" \
     --max_epochs 1000 \
-    --wandb_mode False \
+    --wandb_mode false \
     --clip_grad_norm 1.0 \
     --wing_loss_omega 0.1 \
     --wing_loss_epsilon 0.01 \
     --landmark_selected_index "36,39,37,42,45,43,48,54,51,57" \
-    --use_gradient_penalty True \
+    --use_gradient_penalty true \
     --gp_weight 10.0 \
     --num_bins 66 \
     --db_path_prefix "./assets/db_path/"
